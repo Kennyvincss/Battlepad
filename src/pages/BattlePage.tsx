@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { Battle, TokenId, TradeSide } from '../data/types';
 import { useData, useEngineEvent } from '../data/DataContext';
 import { ago, duration, num, pct, price as fmtPrice, quoteToUsd, short, sol, usd } from '../lib/format';
@@ -11,6 +11,9 @@ import { ScoreTug } from '../components/BattleCard';
 import { EndProof, IntegrityAlertBanner, IntegrityPanel, LoyaltyCard, RewardSplitBar, RulesModal } from '../components/BattleInfo';
 import { Flash, InfoButton, Modal, SimPill, StreakBadge, TokenLogo, sideColor, sideStyle, useMediaQuery } from '../components/ui';
 import { ResultPanel, ResultReveal } from '../components/Result';
+import { BattleChat } from '../components/Chat';
+import { BattleTreasuryCard } from '../components/Treasury';
+import { roundName } from '../sim/engine';
 
 export function BattlePage() {
   const { id } = useParams();
@@ -21,6 +24,8 @@ export function BattlePage() {
   const [reveal, setReveal] = useState(false);
   const [leadFlash, setLeadFlash] = useState<{ k: number; leader: TokenId } | null>(null);
   const [sheet, setSheet] = useState<{ token: TokenId; side: TradeSide } | null>(null);
+  const [tab, setTab] = useState<Section>('trade');
+  const nav = useNavigate();
   const isMobile = useMediaQuery('(max-width: 900px)');
 
   useEngineEvent((ev) => {
@@ -46,24 +51,45 @@ export function BattlePage() {
   const alert = live ? recentAlert(e, battle) : undefined;
   const tokens = [A.token, B.token];
 
+  const t = e.tournamentOf(battle);
+  const match = e.matchOf(battle);
+  const go = (sec: Section) => {
+    if (sec === 'spectate' && !isMobile) { nav(`/battle/${battle.id}/watch`); return; }
+    setTab(sec);
+    if (!isMobile) document.getElementById(`sec-${sec}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  const show = (sec: Section) => !isMobile || tab === sec;
+
+  const infoPanels = (
+    <>
+      <LoyaltyCard battle={battle} />
+      <BattleTreasuryCard battle={battle} />
+      <IntegrityPanel battle={battle} />
+      <RecordsPanel battle={battle} />
+    </>
+  );
+
   return (
     <div className="page battle-page" style={{ '--ha': A.token.hue, '--hb': B.token.hue } as CSSProperties}>
       {/* --------------------------------------------------- header strip */}
       <div className="battle-strip">
-        <div className="row" style={{ gap: 10 }}>
+        <div className="row wrap" style={{ gap: 10 }}>
           <Link to="/" className="btn btn-ghost btn-sm">← Battles</Link>
           <span className="battle-strip-title">
             {live && <><span className="live-dot" />⚔️ LIVE BATTLE</>}
             {ended && <>🏁 BATTLE OVER</>}
             {upcoming && <>🗓 UPCOMING BATTLE</>}
           </span>
+          <span className="pill mono">#{battle.number}</span>
           <span className="pill hide-mobile">{BATTLE_TYPES[battle.rules.type].label}</span>
           <span className="pill pill-up hide-mobile" title="Rules are locked and hashed into the public commitment">🔒 Rules locked</span>
           <SimPill />
         </div>
-        <div className="row" style={{ gap: 8 }}>
+        <div className="row wrap" style={{ gap: 8 }}>
+          {t && <Link to={`/tournament/${t.id}`} className="btn btn-sm btn-tourney">🏆 View Tournament{match ? ` · ${roundName(t, match.round)}` : ''}</Link>}
           {ended && <button className="btn btn-sm" onClick={() => setReveal(true)}>▶ Replay reveal</button>}
           <button className="btn btn-sm" onClick={() => setRulesOpen(true)}>📜 Battle Rules</button>
+          {!upcoming && <Link to={`/battle/${battle.id}/watch`} className="btn btn-sm btn-watch">👁 WATCH BATTLE <span className="mono">{num(battle.spectators, false)}</span></Link>}
         </div>
       </div>
 
@@ -92,39 +118,62 @@ export function BattlePage() {
       {!upcoming && <ScoreSection battle={battle} A={A} B={B} onRules={() => setRulesOpen(true)} />}
       {upcoming && <UpcomingInfo battle={battle} onRules={() => setRulesOpen(true)} />}
 
+      {/* --------------------------------------------------- section nav: TRADE | SPECTATE | CHAT | BATTLE INFO */}
+      <nav className="sec-nav" aria-label="Battle sections">
+        {([['trade', '💱 Trade'], ['spectate', '👁 Spectate'], ['chat', '💬 Chat'], ['info', 'ℹ️ Battle info']] as [Section, string][]).map(([k, l]) => (
+          <button key={k} className={`sec-tab ${isMobile && tab === k ? 'active' : ''}`} onClick={() => go(k)}>
+            {l}
+            {k === 'chat' && <span className="mono dim"> {num(battle.spectators, false)}</span>}
+          </button>
+        ))}
+      </nav>
+
       {/* --------------------------------------------------- main grid */}
-      <div className="battle-grid">
-        <div className="battle-main">
-          <PriceChart battle={battle} height={isMobile ? 280 : 380} />
-          {isMobile && (
-            <div id="trade">
-              <TradePanel battle={battle} tokens={tokens} />
+      {!isMobile ? (
+        <div className="battle-grid">
+          <div className="battle-main">
+            <div id="sec-trade" className="anchor" />
+            <PriceChart battle={battle} height={380} />
+            <div id="sec-chat" className="anchor" />
+            <div className="duo">
+              <ActivityTabs battle={battle} />
+              <BattleChat battle={battle} height={372} />
             </div>
-          )}
-          <ActivityTabs battle={battle} />
-          <EndProof battle={battle} />
-        </div>
-        <aside className="battle-side">
-          {!isMobile && <TradePanel battle={battle} tokens={tokens} />}
-          <LoyaltyCard battle={battle} />
-          <IntegrityPanel battle={battle} />
-          <div className="panel">
-            <div className="panel-head"><span className="panel-title">🏆 Battle Reward Pool</span><span className="mono">{sol(battle.rules.rewardPoolQuote, 0)}</span></div>
-            <div className="panel-pad">
-              <RewardSplitBar rules={battle.rules} compact />
-              <p className="dim" style={{ fontSize: 11.5, margin: '10px 0 0' }}>Fixed before start. Winning does not guarantee price appreciation. <button className="btn-text link" onClick={() => setRulesOpen(true)}>Full rules →</button></p>
-            </div>
+            <EndProof battle={battle} />
           </div>
-          <RecordsPanel battle={battle} />
-        </aside>
-      </div>
+          <aside className="battle-side">
+            <TradePanel battle={battle} tokens={tokens} />
+            <div id="sec-info" className="anchor" />
+            {infoPanels}
+          </aside>
+        </div>
+      ) : (
+        <div className="battle-mobile">
+          {show('trade') && (
+            <>
+              <PriceChart battle={battle} height={280} />
+              <div id="trade"><TradePanel battle={battle} tokens={tokens} /></div>
+              <ActivityTabs battle={battle} />
+            </>
+          )}
+          {show('spectate') && <SpectatePreview battle={battle} />}
+          {show('chat') && <BattleChat battle={battle} height="58vh" />}
+          {show('info') && (
+            <>
+              {infoPanels}
+              <EndProof battle={battle} />
+              <button className="btn btn-block" onClick={() => setRulesOpen(true)}>📜 Full battle rules</button>
+            </>
+          )}
+        </div>
+      )}
 
       {/* --------------------------------------------------- mobile sticky trade bar */}
-      {isMobile && (
+      {isMobile && tab === 'trade' && (
         <div className="sticky-trade">
-          {tokens.map((t) => (
-            <button key={t.id} className="btn btn-side-solid btn-lg grow" style={sideStyle(t.hue)} onClick={() => setSheet({ token: t.id, side: 'buy' })}>
-              {t.logo} Buy {t.ticker}
+          {tokens.map((tk) => (
+            <button key={tk.id} className="btn btn-side-solid btn-lg grow" style={sideStyle(tk.hue)} onClick={() => setSheet({ token: tk.id, side: 'buy' })}>
+              {tk.logo} Buy {tk.ticker}
             </button>
           ))}
           <button className="btn btn-sell btn-lg" onClick={() => setSheet({ token: e.wallet.positions[A.token.id]?.amount ? A.token.id : B.token.id, side: 'sell' })}>Sell</button>
@@ -151,6 +200,36 @@ export function BattlePage() {
         </Modal>
       )}
       {reveal && battle.final && <ResultReveal battle={battle} onClose={() => setReveal(false)} />}
+    </div>
+  );
+}
+
+type Section = 'trade' | 'spectate' | 'chat' | 'info';
+
+/** Mobile "Spectate" tab: a compact live event view with a link to full spectator mode. */
+function SpectatePreview({ battle }: { battle: Battle }) {
+  const e = useData();
+  const stream = [...battle.feed].reverse().slice(0, 20);
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <span className="panel-title">👁 Spectate</span>
+        <span className="spec-watch"><span className="online-dot" /><b className="mono">{num(battle.spectators, false)}</b> WATCHING</span>
+      </div>
+      <div className="panel-pad col" style={{ gap: 10 }}>
+        <Link to={`/battle/${battle.id}/watch`} className="btn btn-watch btn-lg btn-block">👁 WATCH BATTLE — full spectator mode</Link>
+        <div className="pbp" style={{ maxHeight: 'none' }}>
+          {stream.map((f) => {
+            const tk = f.tokenId ? e.tokens[f.tokenId] : undefined;
+            return (
+              <div key={f.id} className={`pbp-item k-${f.kind}`} style={tk ? sideStyle(tk.hue) : undefined}>
+                <span className="grow">{f.text}</span>
+                <span className="dim mono" style={{ fontSize: 10.5 }}>{ago(e.now - f.t)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
@@ -214,7 +293,7 @@ function Stat({ l, v, sub, cls = '', subCls = '' }: { l: string; v: string; sub?
   );
 }
 
-function DurationBlock({ battle, elapsed }: { battle: Battle; elapsed: number }) {
+export function DurationBlock({ battle, elapsed }: { battle: Battle; elapsed: number }) {
   const e = useData();
   const min = battle.rules.randomEnd.minDurationMs;
   const live = battle.status === 'live';
@@ -257,7 +336,7 @@ function DurationBlock({ battle, elapsed }: { battle: Battle; elapsed: number })
   );
 }
 
-function LeaderBlock({ battle, A, B }: { battle: Battle; A: SideView; B: SideView }) {
+export function LeaderBlock({ battle, A, B }: { battle: Battle; A: SideView; B: SideView }) {
   const ended = battle.status === 'ended';
   const L = A.position === 1 ? A : B;
   const margin = Math.abs(A.score - B.score);
@@ -326,7 +405,7 @@ function ScoreSection({ battle, A, B, onRules }: { battle: Battle; A: SideView; 
   );
 }
 
-function ScoreTimeline({ battle }: { battle: Battle }) {
+export function ScoreTimeline({ battle }: { battle: Battle }) {
   const e = useData();
   const pts = battle.scoreHistory;
   const W = 400, H = 120;

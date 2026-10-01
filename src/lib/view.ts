@@ -83,3 +83,30 @@ export function userStats(e: SimEngine) {
     loyaltyPoints: e.wallet.loyaltyPoints,
   };
 }
+
+export function isRematch(e: SimEngine, b: Battle) {
+  const start = b.startedAt ?? b.scheduledStart;
+  return e.history.some((h) => h.battleId !== b.id && h.tokenId === b.a.tokenId && h.opponentId === b.b.tokenId && h.endedAt < start);
+}
+
+/** Head-to-head series between the two tokens, including this battle if finished. */
+export function headToHead(e: SimEngine, aId: string, bId: string) {
+  const games = e.history.filter((h) => h.tokenId === aId && h.opponentId === bId);
+  return { a: games.filter((g) => g.won).length, b: games.filter((g) => !g.won).length };
+}
+
+export type CardVariant = 'tournament' | 'streak' | 'close' | 'dominant' | 'rematch' | 'standard';
+
+/** Which result-card treatments apply, most distinctive first. */
+export function cardVariants(e: SimEngine, b: Battle): CardVariant[] {
+  if (!b.final || !b.winner) return ['standard'];
+  const margin = Math.abs(b.final.scoreA.total - b.final.scoreB.total);
+  const out: CardVariant[] = [];
+  if (b.tournamentId) out.push('tournament');
+  if (e.recordFor(b.winner).streak >= 3) out.push('streak');
+  if (margin < 3) out.push('close');
+  if (margin >= 15) out.push('dominant');
+  if (isRematch(e, b)) out.push('rematch');
+  out.push('standard');
+  return out;
+}

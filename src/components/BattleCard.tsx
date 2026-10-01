@@ -4,6 +4,7 @@ import type { Battle, BattleRecordEntry, Token } from '../data/types';
 import { useData } from '../data/DataContext';
 import { ago, duration, num, pct, quoteToUsd, usd } from '../lib/format';
 import { BATTLE_TYPES } from '../lib/rules';
+import { roundName } from '../sim/engine';
 import { sideView, battleIntegrity, combinedVolumeUsd } from '../lib/view';
 import { Flash, StatusPill, StreakBadge, TokenLogo, sideColor } from './ui';
 
@@ -88,12 +89,15 @@ export function BattleCard({ battle }: { battle: Battle }) {
   const leader = isEnded ? e.tokens[battle.winner!] : A.position === 1 ? A.token : B.token;
   const chg = (c: number) => <span className={c >= 0 ? 'up' : 'down'}>{pct(c)}</span>;
   const rules = battle.rules;
+  const t = e.tournamentOf(battle);
+  const m = e.matchOf(battle);
+  const tour = t ? <span className="pill pill-gold" title={t.name}>🏆 {m ? ({ Quarterfinal: 'QF', Semifinal: 'SF', Final: 'FINAL' } as Record<string, string>)[roundName(t, m.round)] ?? roundName(t, m.round) : t.name}</span> : null;
 
   if (upcoming) {
     return (
       <CardShell
         to={`/battle/${battle.id}`}
-        status={<StatusPill battle={battle} elapsed={0} />}
+        status={<span className="row" style={{ gap: 6, minWidth: 0 }}><StatusPill battle={battle} elapsed={0} />{tour}</span>}
         time={<>Starts in {duration(Math.max(0, battle.scheduledStart - e.now))}</>}
         a={{ token: A.token, mcap: usd(A.mcapUsd), sub: <span className="muted">{num(A.holders)} holders</span> }}
         b={{ token: B.token, mcap: usd(B.mcapUsd), sub: <span className="muted">{num(B.holders)} holders</span> }}
@@ -107,13 +111,13 @@ export function BattleCard({ battle }: { battle: Battle }) {
     <CardShell
       to={`/battle/${battle.id}`}
       live={isLive}
-      status={<StatusPill battle={battle} elapsed={elapsed} />}
+      status={<span className="row" style={{ gap: 6, minWidth: 0 }}><StatusPill battle={battle} elapsed={elapsed} compact />{tour}</span>}
       time={isLive ? <>⏱ {duration(elapsed)}</> : <>Lasted {duration(battle.final!.durationMs)}</>}
       a={{ token: A.token, mcap: usd(A.mcapUsd), sub: chg(A.change) }}
       b={{ token: B.token, mcap: usd(B.mcapUsd), sub: chg(B.change) }}
       mid={<ScoreTug a={A.score} b={B.score} hueA={A.token.hue} hueB={B.token.hue} />}
       foot1={[<Who label={isEnded ? 'Winner' : 'Leading'} token={leader} trophy={isEnded} />, <span className="mono muted">{num(battle.traders.size)} traders · {usd(combinedVolumeUsd(battle))}</span>]}
-      foot2={[<span className="mono">👥 {num(A.holders)} · {num(B.holders)}</span>, <span>🛡 {battleIntegrity(battle)}% integrity</span>]}
+      foot2={[<span className="mono">👥 {num(A.holders)} · {num(B.holders)}</span>, <span>{isLive && <>👁 {num(battle.spectators)} · </>}🛡 {battleIntegrity(battle)}%</span>]}
     />
   );
 }

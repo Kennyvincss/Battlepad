@@ -30,9 +30,19 @@ Use the **Sim speed** control (1× / 10× / 60×) in the top ribbon to watch a b
 3. `value_k = sha256(battleId | rulesHash | randomness_k)` → [0,1). The battle ends when `value_k < hazardPerEpoch`.
 4. Every check is logged on the battle page, and **Re-verify all checks** recomputes them.
 
+## Tournaments, treasury, spectating, chat, result cards
+
+| Feature | Where |
+|---|---|
+| Tournaments (4/8-token brackets; every match is an ordinary battle with `tournamentId`) | `SimEngine.createTournament / advanceTournament`, `src/pages/TournamentsPage.tsx` |
+| Battle Treasury: funded at lock + 30% of the 1% swap fee while live, paid out by the locked split | `SimEngine.distributeTreasury`, `src/components/Treasury.tsx`, `src/pages/TreasuryPage.tsx` |
+| Spectator mode (`/battle/:id/watch`): scoreboard, play-by-play, notable trades, watchers | `src/pages/SpectatorPage.tsx` |
+| Battle chat with mentions, emoji, report / mute / block / delete | `src/components/Chat.tsx`, `src/sim/chat.ts` |
+| Shareable Battle Result Cards with variants: tournament, streak, photo finish, domination, rematch | `src/components/ShareCard.tsx`, `cardVariants` in `src/lib/view.ts` |
+
 ## Going live
 
 The UI talks only to the `BattleDataProvider` interface (`src/data/provider.ts`) through `useData()`. To use real chain data, implement that interface on top of an indexer or websocket feed (prices, trades, holders, liquidity), a wallet adapter (balances, swaps), the battle program (commitments, end checks, reward claims) and a drand client. Then swap it in `src/data/DataContext.tsx`.
 
 ## Pages
-Battles (discovery) · Battle screen · Token battle record · Launch · Create battle (6-step wizard) · Challenge accept/decline · Discover · Leaderboards · Creators / creator profile · Portfolio · Rules
+Battles (discovery) · Battle screen (Trade / Spectate / Chat / Battle info) · Spectator mode · Tournaments · Tournament bracket · Treasury · Token battle record · Launch · Create battle (6-step wizard) · Challenge accept/decline · Discover · Leaderboards · Creators / creator profile · Portfolio · Rules

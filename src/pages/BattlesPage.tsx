@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Battle } from '../data/types';
 import { useData } from '../data/DataContext';
-import { num, usd } from '../lib/format';
+import { num, quoteToUsd, usd } from '../lib/format';
+import { roundName } from '../sim/engine';
 import { combinedVolumeUsd } from '../lib/view';
 import { BattleCard, ResultCard } from '../components/BattleCard';
 import { SimPill, StreakBadge, TokenLogo, sideStyle } from '../components/ui';
@@ -21,6 +22,7 @@ export function BattlesPage() {
   const [shown, setShown] = useState(PAGE);
 
   const live = e.liveBattles();
+  const liveTournaments = e.tournaments.filter((t) => t.status === 'live');
   const sudden = live.filter((b) => e.elapsed(b) >= b.rules.randomEnd.minDurationMs);
   const upcoming = e.upcomingBattles();
   const ended = e.endedBattles();
@@ -81,6 +83,23 @@ export function BattlesPage() {
           <SimPill />
         </div>
       </div>
+
+      {liveTournaments.length > 0 && (
+        <div className="tourney-strip">
+          {liveTournaments.map((t) => {
+            const r = e.currentRound(t);
+            const n = t.rounds[r].filter((m) => m.battleId && e.getBattle(m.battleId)?.status === 'live').length;
+            return (
+              <Link key={t.id} to={`/tournament/${t.id}`} className="tourney-chip" style={{ '--h': t.hue } as React.CSSProperties}>
+                <span className="pill pill-live">Live</span>
+                <b>🏆 {t.name}</b>
+                <span className="muted">{roundName(t, r)}s · {n} live · {usd(quoteToUsd(t.prizePoolQuote))} prize pool</span>
+                <span className="link">View bracket →</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
 
       {streaks.length > 0 && (
         <div className="streak-strip">

@@ -247,8 +247,17 @@ export interface Battle {
   trades: Trade[];
   /** Battle Score samples for the score timeline (battle-relative ms). */
   scoreHistory: { t: number; a: number; b: number }[];
-  /** Social feed: wallets joining an army, surges, alerts. */
+  /** Social feed: wallets joining an army, surges, alerts, notable trades, score swings. */
   feed: FeedItem[];
+  /** Sequential public battle number (e.g. BATTLE #184). */
+  number: number;
+  /** Set when the battle is a match inside a tournament bracket. */
+  tournamentId?: string;
+  matchId?: string;
+  treasury: TreasuryState;
+  chat: ChatMessage[];
+  /** People currently watching (spectators + traders with the page open). */
+  spectators: number;
   /** Approx unique traders in the battle across both tokens. */
   traders: Set<Address>;
   final?: BattleFinal;
@@ -260,7 +269,7 @@ export interface Battle {
 export interface FeedItem {
   id: string;
   t: number;
-  kind: 'join' | 'whale' | 'lead' | 'alert' | 'surge' | 'you';
+  kind: 'join' | 'whale' | 'lead' | 'alert' | 'surge' | 'you' | 'trade' | 'holders' | 'score';
   tokenId?: TokenId;
   text: string;
 }
@@ -277,6 +286,8 @@ export interface BattleFinal {
   holderGrowthB: number;
   integrityA: number;
   integrityB: number;
+  holdersA: number;
+  holdersB: number;
   endCheck?: EndCheck;
   hitCap: boolean;
 }
@@ -378,4 +389,98 @@ export interface Quote {
   priceImpact: number;
   fee: number;
   minReceived: number;
+}
+
+/* ---------------------------------------------------------------- Treasury */
+
+export type TreasuryEventKind = 'fund' | 'fees' | 'winner' | 'holders' | 'platform' | 'tournament';
+
+export interface TreasuryEvent {
+  id: string;
+  t: number;
+  battleId?: BattleId;
+  tournamentId?: string;
+  kind: TreasuryEventKind;
+  amountQuote: number;
+  text: string;
+}
+
+/**
+ * Per-battle treasury. Funded before start (creator stakes / launchpad) and
+ * topped up by a fixed share of swap fees while the battle is live. Split by
+ * the battle's locked `rewardSplit` when the battle ends.
+ */
+export interface TreasuryState {
+  fundedQuote: number;
+  feesQuote: number;
+  /** Fees collected but not yet logged as an activity event (batched). */
+  pendingFeesQuote: number;
+  distributed: boolean;
+  events: TreasuryEvent[];
+  history: { t: number; balance: number }[];
+}
+
+export interface GlobalTreasury {
+  /** Platform / ecosystem allocations received. */
+  platformQuote: number;
+  winnerSupportQuote: number;
+  holderRewardsQuote: number;
+  tournamentPrizesQuote: number;
+  events: TreasuryEvent[];
+  /** Cumulative distributed over time. */
+  growth: { t: number; cumulative: number }[];
+}
+
+/* ---------------------------------------------------------------- Chat */
+
+export interface ChatMessage {
+  id: string;
+  t: number;
+  user: string;
+  avatar: string;
+  /** Army the user holds in this battle (cosmetic). */
+  army?: TokenId;
+  text: string;
+  mine?: boolean;
+  deleted?: boolean;
+  system?: boolean;
+}
+
+export interface ChatPrefs {
+  muted: Set<string>;
+  blocked: Set<string>;
+  reported: Set<string>;
+}
+
+/* ---------------------------------------------------------------- Tournaments */
+
+export interface TournamentMatch {
+  id: string;
+  round: number;
+  slot: number;
+  a?: TokenId;
+  b?: TokenId;
+  battleId?: BattleId;
+  winner?: TokenId;
+  scoreA?: number;
+  scoreB?: number;
+  durationMs?: number;
+  endedAt?: number;
+}
+
+export interface Tournament {
+  id: string;
+  name: string;
+  tagline: string;
+  hue: number;
+  size: 4 | 8;
+  status: 'upcoming' | 'live' | 'completed';
+  prizePoolQuote: number;
+  scheduledStart: number;
+  startedAt?: number;
+  endedAt?: number;
+  rounds: TournamentMatch[][];
+  champion?: TokenId;
+  /** Every match uses these standard battle rules (same mechanics as any battle). */
+  rules: BattleRules;
 }

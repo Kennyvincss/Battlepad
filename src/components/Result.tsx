@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import type { Battle } from '../data/types';
 import { useData } from '../data/DataContext';
-import { duration, pct, quoteToUsd, sol, usd } from '../lib/format';
+import { duration, pct, quoteToUsd, usd } from '../lib/format';
 import { SimPill, TokenLogo, sideColor, sideStyle } from './ui';
-import { RewardSplitBar } from './BattleInfo';
+import { TREASURY_COLORS } from './Treasury';
+import { ShareCard } from './ShareCard';
 
 /** Full-screen staged winner reveal. */
 export function ResultReveal({ battle, onClose }: { battle: Battle; onClose: () => void }) {
@@ -72,6 +73,14 @@ export function ResultPanel({ battle }: { battle: Battle }) {
     { k: 'Holder growth', a: pct(f.holderGrowthA), b: pct(f.holderGrowthB), better: f.holderGrowthA >= f.holderGrowthB ? 'a' : 'b' },
     { k: 'Integrity (organic vol.)', a: `${f.integrityA}%`, b: `${f.integrityB}%`, better: f.integrityA >= f.integrityB ? 'a' : 'b' },
   ];
+  const t = e.tournamentOf(battle);
+  const bal = e.treasuryBalance(battle);
+  const sp = battle.rules.rewardSplit;
+  const payouts: [string, number, string][] = [
+    [`Winner liquidity support → $${w.ticker}`, sp.winnerLiquidity, TREASURY_COLORS.winner],
+    [`Holder rewards → $${w.ticker} holders`, sp.holderRewards, TREASURY_COLORS.holders],
+    ['Platform / ecosystem', sp.platform, TREASURY_COLORS.platform],
+  ];
   const nextOpp = Object.values(e.tokens).find((t) => t.id !== ta.id && t.id !== tb.id && !e.battles.some((b) => (b.status === 'live' || b.status === 'scheduled') && (b.a.tokenId === t.id || b.b.tokenId === t.id)));
   return (
     <section className="result panel" style={{ '--h': w.hue } as React.CSSProperties}>
@@ -101,17 +110,30 @@ export function ResultPanel({ battle }: { battle: Battle }) {
         </div>
         <div className="col" style={{ gap: 14 }}>
           <div>
-            <div className="label" style={{ marginBottom: 8 }}>Winner rewards · {sol(battle.rules.rewardPoolQuote, 0)} pool</div>
-            <RewardSplitBar rules={battle.rules} compact />
+            <div className="label" style={{ marginBottom: 8 }}>Rewards · treasury of {usd(quoteToUsd(bal), { compact: false, decimals: 0 })} paid out</div>
+            <div className="tre-split">
+              {payouts.map(([k, v, c]) => (
+                <div key={k} className="tre-split-row"><span className="split-dot" style={{ background: c }} /><span className="grow">{k}</span><span className="mono" style={{ fontWeight: 700 }}>{usd(quoteToUsd(bal * v), { compact: false, decimals: 0 })}</span></div>
+              ))}
+            </div>
           </div>
           <div className="callout callout-info" style={{ fontSize: 12.5 }}>
             <span>ℹ️</span>
             <span>Both tokens keep trading normally. ${(battle.winner === ta.id ? tb : ta).ticker} is not destroyed. Winning does not guarantee future price appreciation.</span>
           </div>
-          <div className="row wrap" style={{ gap: 8 }}>
-            {nextOpp && <Link to={`/create-battle?token=${w.id}&opponent=${nextOpp.id}`} className="btn btn-battle">⚔️ Next challenge</Link>}
-            <Link to={`/token/${w.id}`} className="btn">{w.logo} {w.ticker} battle record</Link>
-          </div>
+        </div>
+      </div>
+      <div className="result-share">
+        <div className="label" style={{ marginBottom: 10 }}>📸 Battle Result Card · share it</div>
+        <ShareCard battle={battle} />
+      </div>
+      <div className="result-next">
+        <span className="label">What's next</span>
+        <div className="row wrap" style={{ gap: 8 }}>
+          {t && <Link to={`/tournament/${t.id}`} className="btn btn-tourney">🏆 {t.status === 'completed' ? `${t.name} results` : `Continue ${t.name}`}</Link>}
+          {nextOpp && <Link to={`/create-battle?token=${w.id}&opponent=${nextOpp.id}`} className="btn btn-battle">⚔️ Next challenge</Link>}
+          <Link to="/tournaments" className="btn">Tournaments</Link>
+          <Link to={`/token/${w.id}`} className="btn">{w.logo} {w.ticker} battle record</Link>
         </div>
       </div>
     </section>

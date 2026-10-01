@@ -1,6 +1,6 @@
 import type {
-  Battle, BattleId, BattleRecordEntry, BattleRules, Challenge, Creator, DataSource, Market, Notification, Quote,
-  Token, TokenId, Trade, TradeSide, Wallet,
+  Battle, BattleId, BattleRecordEntry, BattleRules, Challenge, ChatPrefs, Creator, DataSource, GlobalTreasury, Market,
+  Notification, Quote, Token, TokenId, Tournament, Trade, TradeSide, Wallet,
 } from './types';
 
 /**
@@ -30,6 +30,9 @@ export interface BattleDataProvider {
   readonly wallet: Wallet;
   readonly challenges: Challenge[];
   readonly notifications: Notification[];
+  readonly tournaments: Tournament[];
+  readonly treasury: GlobalTreasury;
+  readonly chatPrefs: ChatPrefs;
 
   subscribe(cb: () => void): () => void;
   onEvent(cb: (e: EngineEvent) => void): () => void;
@@ -47,6 +50,21 @@ export interface BattleDataProvider {
   createChallenge(input: NewChallengeInput): Challenge;
   respondChallenge(id: string, accept: boolean): void;
   markNotificationsRead(): void;
+
+  // Tournaments: every match is an ordinary Battle with `tournamentId` set.
+  getTournament(id: string): Tournament | undefined;
+  tournamentOf(b: Battle): Tournament | undefined;
+
+  // Treasury: on-chain this would read the battle's treasury account.
+  treasuryBalance(b: Battle): number;
+
+  // Battle chat: production would use a websocket chat service with server-side moderation.
+  postChat(battleId: BattleId, text: string): void;
+  deleteChat(battleId: BattleId, msgId: string): void;
+  reportChat(msgId: string): void;
+  toggleMute(user: string): void;
+  toggleBlock(user: string): void;
+  setSpectating(battleId?: BattleId): void;
 }
 
 export interface TradeRequest {

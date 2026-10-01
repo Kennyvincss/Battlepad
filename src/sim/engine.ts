@@ -1,6 +1,7 @@
 import type {
-  Battle, BattleId, BattleRecordEntry, BattleRules, BattleSideState, BattleType, Challenge, Creator, EndCheck, FeedItem,
-  IntegrityEvent, IntegrityState, Market, Notification, Token, TokenId, Trade, TradeSide, Wallet,
+  Battle, BattleId, BattleRecordEntry, BattleRules, BattleSideState, BattleType, Challenge, ChatPrefs, Creator, EndCheck,
+  FeedItem, GlobalTreasury, IntegrityEvent, IntegrityState, Market, Notification, Token, TokenId, Tournament,
+  TournamentMatch, Trade, TradeSide, TreasuryEvent, Wallet,
 } from '../data/types';
 import type {
   BattleDataProvider, EngineEvent, NewChallengeInput, NewTokenInput, TradeRequest, TradeResult,
@@ -11,13 +12,19 @@ import { computeScores, emptyScore, holdFactor, leaderOf } from '../lib/score';
 import { HOUR, MINUTE, makeRules, rulesHash } from '../lib/rules';
 import { SimBeacon, endCheckValue } from '../lib/randomEnd';
 import { fakeAddress, fakeHex, gauss } from '../lib/rng';
-import { short } from '../lib/format';
+import { quoteToUsd, short } from '../lib/format';
+import { POST_BATTLE_LINES, makeChatLine } from './chat';
 
 const STEP_MS = 2000; // simulation resolution
 const SAMPLE_MS = 5000; // price history resolution
 const SCORE_SAMPLE_MS = 30_000;
 const MAX_TRADES = 400;
-const MAX_FEED = 80;
+const MAX_FEED = 160;
+const MAX_CHAT = 150;
+/** Share of each swap fee routed to the live battle's treasury (rest stays with LPs). */
+export const TREASURY_FEE_SHARE = 0.3;
+const ROUND_NAMES: Record<number, string[]> = { 2: ['Semifinal', 'Final'], 3: ['Quarterfinal', 'Semifinal', 'Final'] };
+export const roundName = (t: Tournament, r: number) => ROUND_NAMES[t.rounds.length]?.[r] ?? `Round ${r + 1}`;
 
 const rnd = Math.random;
 const poisson = (lambda: number) => {
@@ -37,6 +44,7 @@ interface SideRuntime {
   surgeBoost: number;
   nextSuspicious: number;
   nextSurge: number;
+  holderMilestone: number;
 }
 
 /**
@@ -68,11 +76,22 @@ export class SimEngine implements BattleDataProvider {
   private silent = false;
   private idn = 0;
   private lastLeadEvent = new Map<BattleId, number>();
+  private lastScoreAnnounce = new Map<BattleId, [number, number]>();
+  private battleSeq = 183;
+  private ffEnd = 0;
+  private lastGrowthSample = 0;
+
+  tournaments: Tournament[] = [];
+  treasury: GlobalTreasury = { platformQuote: 0, winnerSupportQuote: 0, holderRewardsQuote: 0, tournamentPrizesQuote: 0, events: [], growth: [] };
+  chatPrefs: ChatPrefs = { muted: new Set(), blocked: new Set(), reported: new Set() };
+  /** Battle the user is watching in spectator mode (counted in the watcher number). */
+  spectating?: BattleId;
 
   constructor() {
     const realNow = Date.now();
     const ff = 82 * MINUTE; // how far back the simulated world starts
     this.now = realNow - ff;
+    this.ffEnd = realNow;
     this.beacon = new SimBeacon(realNow - 400 * 24 * HOUR, 3000, fakeHex(rnd, 32));
 
     for (const t of TOKENS) {
@@ -82,7 +101,10 @@ export class SimEngine implements BattleDataProvider {
     }
     for (const c of CREATORS) this.creators[c.id] = structuredClone(c);
     this.history = generateHistory();
+    this.seedCompletedTournament('Genesis Cup', 'The first bracket ever fought on BATTLE.', 280, ['shark', 'moon', 'dragon', 'tiger'], 900, realNow - 6.5 * 24 * HOUR);
+    this.seedCompletedTournament('Deep Sea Open', 'Eight armies from the deep.', 200, ['octo', 'crab', 'otter', 'turtle', 'croc', 'peng', 'parrot', 'snail'], 1500, realNow - 2.2 * 24 * HOUR);
     this.applyHistoryToCreators();
+    this.seedTreasuryFromHistory();
 
     this.wallet = {
       connected: false,
@@ -98,10 +120,18 @@ export class SimEngine implements BattleDataProvider {
     this.markets.owl.holders = 612;
 
     // Live battles, started in the (simulated) past – fast-forwarded below.
-    const featured = this.createBattle('frog', 'cat', makeRules(), realNow - 56 * MINUTE, { featured: true });
+    // Live tournament: its quarterfinals are ordinary live battles (FROG vs CAT is the headline match).
+    const apex = this.createTournament({
+      name: 'Apex Cup', tagline: 'Eight armies. One champion.', hue: 45, prize: 1200,
+      tokens: ['frog', 'cat', 'wolf', 'fox', 'lion', 'bee', 'uni', 'whale'], start: realNow - 68 * MINUTE,
+      matchStarts: [realNow - 56 * MINUTE, realNow - 68 * MINUTE, realNow - 49 * MINUTE, realNow - 33 * MINUTE], featuredSlot: 0,
+    });
+    const featured = this.getBattle(apex.rounds[0][0].battleId!)!;
+    this.createTournament({ name: 'Night Owl Invitational', tagline: 'Four night-shift armies, one bracket.', hue: 268, prize: 600, tokens: ['owl', 'ghost', 'bat', 'skull'], start: realNow + 48 * MINUTE });
+    this.createTournament({ name: 'Sky Series', tagline: 'High-flying tokens, eight-way bracket.', hue: 200, prize: 1600, tokens: ['eagle', 'rocket', 'robot', 'alien', 'gem', 'bolt', 'koala', 'panda'], start: realNow + 3 * HOUR });
     const LIVE: [string, string, number, BattleType?][] = [
-      ['wolf', 'fox', 68], ['shark', 'octo', 63, 'blitz'], ['ape', 'tiger', 41], ['panda', 'eagle', 23, 'marathon'],
-      ['lion', 'bee', 49], ['uni', 'whale', 33], ['croc', 'peng', 17, 'blitz'], ['sloth', 'otter', 61],
+      ['shark', 'octo', 63, 'blitz'], ['ape', 'tiger', 41], ['panda', 'eagle', 23, 'marathon'],
+      ['croc', 'peng', 17, 'blitz'], ['sloth', 'otter', 61],
       ['koala', 'bat', 38], ['crab', 'snail', 12], ['turtle', 'parrot', 52, 'marathon'], ['robot', 'alien', 29],
       ['pizza', 'rocket', 44], ['gem', 'bolt', 66], ['mush', 'cactus', 9, 'blitz'],
     ];
@@ -301,8 +331,249 @@ export class SimEngine implements BattleDataProvider {
     const factor = holdFactor(pos?.amount ?? 0, l.peakAmount);
     const weight = l.weightedQuoteMs * factor;
     const share = side.circulatingQuoteMs > 0 ? Math.min(1, weight / side.circulatingQuoteMs) : 0;
-    const pool = b.rules.rewardPoolQuote * b.rules.rewardSplit.holderRewards;
+    const pool = this.treasuryBalance(b) * b.rules.rewardSplit.holderRewards;
     return { heldQuote, heldMs: l.heldMs, factor, share, estRewardQuote: share * pool, weight };
+  }
+
+  /* ------------------------------------------------------------ treasury */
+
+  treasuryBalance(b: Battle) {
+    return b.treasury.fundedQuote + b.treasury.feesQuote;
+  }
+
+  distributedTotal() {
+    const g = this.treasury;
+    return g.platformQuote + g.winnerSupportQuote + g.holderRewardsQuote + g.tournamentPrizesQuote;
+  }
+
+  /** Locked in live / upcoming battle treasuries right now. */
+  lockedTotal() {
+    return this.battles.filter((b) => !b.treasury.distributed && b.status !== 'pending').reduce((s, b) => s + this.treasuryBalance(b), 0);
+  }
+
+  private globalEvent(e: Omit<TreasuryEvent, 'id'>) {
+    this.treasury.events.unshift({ id: `ge${++this.idn}`, ...e });
+    if (this.treasury.events.length > 120) this.treasury.events.length = 120;
+  }
+
+  private distributeTreasury(b: Battle) {
+    if (b.treasury.distributed) return;
+    const tr = b.treasury;
+    if (tr.pendingFeesQuote > 0) {
+      tr.events.push({ id: `te${++this.idn}`, t: this.now, battleId: b.id, kind: 'fees', amountQuote: tr.pendingFeesQuote, text: `+${tr.pendingFeesQuote.toFixed(3)} SOL final swap-fee sweep` });
+      tr.pendingFeesQuote = 0;
+    }
+    const bal = this.treasuryBalance(b);
+    const sp = b.rules.rewardSplit;
+    const w = this.tokens[b.winner!];
+    const holders = b.final ? (b.winner === b.a.tokenId ? b.final.holdersA : b.final.holdersB) : 0;
+    const parts: [TreasuryEvent['kind'], number, string][] = [
+      ['winner', bal * sp.winnerLiquidity, `Winner liquidity support → $${w.ticker} pool`],
+      ['holders', bal * sp.holderRewards, `Battle Loyalty rewards → ${holders.toLocaleString('en-US')} eligible $${w.ticker} holders (weighted)`],
+      ['platform', bal * sp.platform, 'Platform / ecosystem allocation'],
+    ];
+    for (const [kind, amt, text] of parts) {
+      tr.events.push({ id: `te${++this.idn}`, t: this.now, battleId: b.id, kind, amountQuote: amt, text });
+      this.globalEvent({ t: this.now, battleId: b.id, kind, amountQuote: amt, text: `#${b.number} ${text}` });
+    }
+    this.treasury.winnerSupportQuote += bal * sp.winnerLiquidity;
+    this.treasury.holderRewardsQuote += bal * sp.holderRewards;
+    this.treasury.platformQuote += bal * sp.platform;
+    tr.history.push({ t: b.final?.durationMs ?? 0, balance: 0 });
+    tr.distributed = true;
+  }
+
+  /** Simulated history of past distributions, derived from the archived battle results. */
+  private seedTreasuryFromHistory() {
+    const seen = new Set<string>();
+    const past = this.history.filter((h) => h.won && !seen.has(h.battleId) && seen.add(h.battleId)).sort((a, b) => a.endedAt - b.endedAt);
+    let cum = 0;
+    past.forEach((h, i) => {
+      const bal = 100 + ((h.battleId.charCodeAt(h.battleId.length - 1) * 7) % 16) * 10 + 4 + (i % 9) * 2.3;
+      const w = this.tokens[h.tokenId];
+      this.treasury.winnerSupportQuote += bal * 0.5;
+      this.treasury.holderRewardsQuote += bal * 0.25;
+      this.treasury.platformQuote += bal * 0.25;
+      cum += bal;
+      this.treasury.growth.push({ t: h.endedAt, cumulative: cum + this.treasury.tournamentPrizesQuote });
+      if (i >= past.length - 18) {
+        this.globalEvent({ t: h.endedAt, kind: 'winner', amountQuote: bal * 0.5, text: `$${w.ticker} def. $${this.tokens[h.opponentId].ticker} — winner liquidity support` });
+        this.globalEvent({ t: h.endedAt + 1, kind: 'holders', amountQuote: bal * 0.25, text: `$${w.ticker} holder rewards distributed` });
+      }
+    });
+    this.treasury.events.sort((a, b) => b.t - a.t);
+    this.treasury.growth.sort((a, b) => a.t - b.t);
+  }
+
+  /* ---------------------------------------------------------- tournaments */
+
+  getTournament(id: string) {
+    return this.tournaments.find((t) => t.id === id);
+  }
+
+  tournamentOf(b: Battle) {
+    return b.tournamentId ? this.getTournament(b.tournamentId) : undefined;
+  }
+
+  matchOf(b: Battle): TournamentMatch | undefined {
+    const t = this.tournamentOf(b);
+    return t?.rounds.flat().find((m) => m.id === b.matchId);
+  }
+
+  currentRound(t: Tournament) {
+    if (t.status === 'completed') return t.rounds.length - 1;
+    const i = t.rounds.findIndex((r) => r.some((m) => !m.winner));
+    return i < 0 ? t.rounds.length - 1 : i;
+  }
+
+  /** Token is still alive in an upcoming or live tournament. */
+  private inActiveTournament(tokenId: TokenId) {
+    return this.tournaments.some((t) => t.status !== 'completed' && t.rounds[0].some((m) => m.a === tokenId || m.b === tokenId)
+      && !t.rounds.flat().some((m) => m.winner && (m.a === tokenId || m.b === tokenId) && m.winner !== tokenId));
+  }
+
+  private tokenBusyElsewhere(b: Battle) {
+    return this.battles.some((x) => x !== b && x.status === 'live' && [x.a.tokenId, x.b.tokenId].some((t) => t === b.a.tokenId || t === b.b.tokenId));
+  }
+
+  createTournament(o: { name: string; tagline: string; hue: number; prize: number; tokens: TokenId[]; start: number; matchStarts?: number[]; featuredSlot?: number }) {
+    const size = o.tokens.length as 4 | 8;
+    const nRounds = size === 8 ? 3 : 2;
+    const id = `t-${o.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    const rounds: TournamentMatch[][] = [];
+    for (let r = 0; r < nRounds; r++) {
+      const count = size / 2 ** (r + 1);
+      rounds.push(Array.from({ length: count }, (_, slot) => ({
+        id: `${id}-r${r}-m${slot}`, round: r, slot,
+        a: r === 0 ? o.tokens[slot * 2] : undefined, b: r === 0 ? o.tokens[slot * 2 + 1] : undefined,
+      })));
+    }
+    const t: Tournament = {
+      id, name: o.name, tagline: o.tagline, hue: o.hue, size, status: 'upcoming', prizePoolQuote: o.prize,
+      scheduledStart: o.start, rounds, rules: makeRules({ rewardPoolQuote: Math.round(o.prize / (size - 1) / 10) * 10 }),
+    };
+    this.tournaments.push(t);
+    if (o.matchStarts) {
+      t.status = 'live';
+      t.startedAt = o.start;
+      rounds[0].forEach((m, i) => this.createMatchBattle(t, m, o.matchStarts![i], i === o.featuredSlot));
+    }
+    return t;
+  }
+
+  private createMatchBattle(t: Tournament, m: TournamentMatch, start: number, featured = false) {
+    const b = this.createBattle(m.a!, m.b!, t.rules, start, { tournamentId: t.id, matchId: m.id, featured });
+    m.battleId = b.id;
+    return b;
+  }
+
+  private startTournament(t: Tournament) {
+    t.status = 'live';
+    t.startedAt = this.now;
+    t.rounds[0].forEach((m, i) => this.createMatchBattle(t, m, this.now + (2 + i * 2) * MINUTE));
+    this.notify({ kind: 'battle-start', title: '🏆 TOURNAMENT LIVE', body: `${t.name} has started — ${t.size} tokens, ${t.rounds.length} rounds.`, link: `/tournament/${t.id}` });
+    this.emit({ type: 'toast', title: `🏆 ${t.name} has started`, body: `${roundName(t, 0)}s are scheduled.`, tone: 'info' });
+  }
+
+  private advanceTournament(b: Battle) {
+    const t = this.tournamentOf(b);
+    const m = this.matchOf(b);
+    if (!t || !m || !b.final) return;
+    m.winner = b.winner;
+    m.scoreA = b.final.scoreA.total;
+    m.scoreB = b.final.scoreB.total;
+    m.durationMs = b.final.durationMs;
+    m.endedAt = b.endedAt;
+    const w = this.tokens[b.winner!];
+    const next = t.rounds[m.round + 1];
+    if (!next) {
+      t.status = 'completed';
+      t.endedAt = this.now;
+      t.champion = b.winner;
+      this.treasury.tournamentPrizesQuote += t.prizePoolQuote;
+      this.globalEvent({ t: this.now, tournamentId: t.id, kind: 'tournament', amountQuote: t.prizePoolQuote, text: `${t.name} prize pool paid — champion $${w.ticker}` });
+      this.notify({ kind: 'battle-end', title: '🏆 TOURNAMENT CHAMPION', body: `${w.logo} $${w.ticker} won ${t.name}.`, link: `/tournament/${t.id}` });
+      this.emit({ type: 'toast', title: `🏆 ${w.logo} $${w.ticker} is the ${t.name} champion`, tone: 'good' });
+      return;
+    }
+    const nm = next[Math.floor(m.slot / 2)];
+    if (m.slot % 2 === 0) nm.a = b.winner; else nm.b = b.winner;
+    this.emit({ type: 'toast', title: `🏆 ${t.name}: $${w.ticker} advances`, body: `Into the ${roundName(t, m.round + 1).toLowerCase()}.`, tone: 'info' });
+    if (nm.a && nm.b && !nm.battleId) {
+      this.createMatchBattle(t, nm, this.now + 4 * MINUTE);
+    }
+  }
+
+  /** Completed (archived) tournament with simulated results; also written into battle history. */
+  private seedCompletedTournament(name: string, tagline: string, hue: number, tokens: TokenId[], prize: number, endedAt: number) {
+    const t = this.createTournament({ name, tagline, hue, prize, tokens, start: endedAt - tokens.length * 0.9 * HOUR });
+    t.status = 'completed';
+    t.startedAt = t.scheduledStart;
+    t.endedAt = endedAt;
+    const rounds = t.rounds.length;
+    t.rounds.forEach((round, r) => {
+      round.forEach((m) => {
+        if (r > 0) {
+          m.a = t.rounds[r - 1][m.slot * 2].winner;
+          m.b = t.rounds[r - 1][m.slot * 2 + 1].winner;
+        }
+        const aWins = rnd() < 0.5;
+        const win = 64 + rnd() * 16;
+        const lose = win - (1 + rnd() * 13);
+        m.winner = aWins ? m.a : m.b;
+        m.scoreA = aWins ? win : lose;
+        m.scoreB = aWins ? lose : win;
+        m.durationMs = HOUR + Math.floor(rnd() * 80) * MINUTE;
+        m.endedAt = endedAt - (rounds - 1 - r) * 2.5 * HOUR - m.slot * 20 * MINUTE;
+        const bid = `${m.id}-h`;
+        this.history.push(
+          { battleId: bid, tokenId: m.a!, opponentId: m.b!, won: aWins, scoreFor: m.scoreA, scoreAgainst: m.scoreB, durationMs: m.durationMs, endedAt: m.endedAt },
+          { battleId: bid, tokenId: m.b!, opponentId: m.a!, won: !aWins, scoreFor: m.scoreB, scoreAgainst: m.scoreA, durationMs: m.durationMs, endedAt: m.endedAt },
+        );
+      });
+    });
+    t.champion = t.rounds[rounds - 1][0].winner;
+    this.treasury.tournamentPrizesQuote += prize;
+    this.globalEvent({ t: endedAt, tournamentId: t.id, kind: 'tournament', amountQuote: prize, text: `${name} prize pool paid — champion $${this.tokens[t.champion!].ticker}` });
+    this.history.sort((a, b) => a.endedAt - b.endedAt);
+  }
+
+  /* ------------------------------------------------------------------ chat */
+
+  postChat(battleId: BattleId, text: string) {
+    const b = this.getBattle(battleId);
+    const clean = text.trim().slice(0, 280);
+    if (!b || !clean) return;
+    this.pushChat(b, { user: 'you', avatar: '🫵', text: clean, mine: true, army: this.wallet.armies[battleId] });
+    this.bump();
+  }
+
+  deleteChat(battleId: BattleId, msgId: string) {
+    const m = this.getBattle(battleId)?.chat.find((x) => x.id === msgId);
+    if (m?.mine) { m.deleted = true; this.bump(); }
+  }
+
+  reportChat(msgId: string) {
+    this.chatPrefs.reported.add(msgId);
+    this.emit({ type: 'toast', title: 'Message reported', body: 'Hidden for you and sent to moderators (simulated).', tone: 'info' });
+    this.bump();
+  }
+
+  toggleMute(user: string) {
+    const s = this.chatPrefs.muted;
+    if (s.has(user)) s.delete(user); else s.add(user);
+    this.bump();
+  }
+
+  toggleBlock(user: string) {
+    const s = this.chatPrefs.blocked;
+    if (s.has(user)) s.delete(user); else s.add(user);
+    this.bump();
+  }
+
+  setSpectating(battleId?: BattleId) {
+    this.spectating = battleId;
+    this.bump();
   }
 
   /* ================================================================ internals */
@@ -360,7 +631,7 @@ export class SimEngine implements BattleDataProvider {
     };
   }
 
-  createBattle(aId: TokenId, bId: TokenId, rules: BattleRules, scheduledStart: number, opts: { featured?: boolean; status?: Battle['status'] } = {}) {
+  createBattle(aId: TokenId, bId: TokenId, rules: BattleRules, scheduledStart: number, opts: { featured?: boolean; status?: Battle['status']; tournamentId?: string; matchId?: string } = {}) {
     const id = `${aId}-vs-${bId}-${(++this.idn).toString(36)}`;
     const hash = rulesHash(rules, aId, bId);
     const mkIntegrity = (): IntegrityState => ({ score: 100, events: [], flaggedWallets: new Set() });
@@ -370,7 +641,14 @@ export class SimEngine implements BattleDataProvider {
       scheduledStart, challengerId: aId, createdBy: this.tokens[aId].creatorId, endChecks: [],
       integrity: { [aId]: mkIntegrity(), [bId]: mkIntegrity() }, leadChanges: [], trades: [], scoreHistory: [],
       feed: [], traders: new Set(), featured: opts.featured,
+      number: ++this.battleSeq, tournamentId: opts.tournamentId, matchId: opts.matchId,
+      treasury: { fundedQuote: rules.rewardPoolQuote, feesQuote: 0, pendingFeesQuote: 0, distributed: false, events: [], history: [] },
+      chat: [], spectators: 0,
     };
+    b.treasury.events.push({
+      id: `te${++this.idn}`, t: this.now, battleId: id, kind: 'fund', amountQuote: rules.rewardPoolQuote,
+      text: `Treasury funded with ${rules.rewardPoolQuote.toFixed(0)} SOL (creator stakes + launchpad) and locked`,
+    });
     this.battles.push(b);
     return b;
   }
@@ -388,12 +666,14 @@ export class SimEngine implements BattleDataProvider {
       s.history.push({ t: b.startedAt, price: m.price, volume: 0 });
       this.side.set(`${b.id}:${s.tokenId}`, {
         wallets: [], lastSample: b.startedAt, bucketVol: 0, surgeUntil: 0, surgeBoost: 1,
-        nextSuspicious: b.startedAt + (10 + rnd() * 50) * MINUTE, nextSurge: b.startedAt + (4 + rnd() * 30) * MINUTE,
+        nextSuspicious: b.startedAt + (10 + rnd() * 50) * MINUTE, nextSurge: b.startedAt + (4 + rnd() * 30) * MINUTE, holderMilestone: 0,
       });
     }
     const [sa, sb] = this.scoreCtx(b);
     [b.a.score, b.b.score] = computeScores(b.rules, sa, sb);
     b.leadChanges.push({ t: 0, leader: leaderOf(b) });
+    b.treasury.history.push({ t: 0, balance: this.treasuryBalance(b) });
+    this.lastScoreAnnounce.set(b.id, [Math.round(b.a.score.total), Math.round(b.b.score.total)]);
     this.pushFeed(b, { kind: 'lead', text: `⚔️ Battle started. Rules locked · commitment ${b.commitment.rulesHash.slice(0, 10)}…` });
     if (!this.silent) {
       const ta = this.tokens[b.a.tokenId];
@@ -418,7 +698,11 @@ export class SimEngine implements BattleDataProvider {
   private step(dt: number) {
     this.now += dt;
     for (const b of this.battles) {
-      if ((b.status === 'scheduled') && this.now >= b.scheduledStart) this.startBattle(b);
+      if (b.status === 'scheduled' && this.now >= b.scheduledStart) {
+        // Tournament matches wait until both tokens are free of other live battles.
+        if (b.tournamentId && this.tokenBusyElsewhere(b)) b.scheduledStart = this.now + MINUTE;
+        else this.startBattle(b);
+      }
       if (b.status === 'live') this.stepLive(b, dt);
       else if (b.status === 'ended' && b.startedAt) this.stepPost(b, dt);
     }
@@ -426,6 +710,11 @@ export class SimEngine implements BattleDataProvider {
     for (const id in this.sentiment) {
       const s = this.sentiment[id];
       this.sentiment[id] = s - s * (dt / 600_000) + 0.035 * Math.sqrt(dt / 1000) * gauss(rnd);
+    }
+    for (const t of this.tournaments) if (t.status === 'upcoming' && this.now >= t.scheduledStart) this.startTournament(t);
+    if (this.now - this.lastGrowthSample >= 10 * MINUTE) {
+      this.lastGrowthSample = this.now;
+      this.treasury.growth.push({ t: this.now, cumulative: this.distributedTotal() });
     }
     this.keepPipelineFull();
   }
@@ -466,12 +755,77 @@ export class SimEngine implements BattleDataProvider {
       }
     }
 
+    this.liveExtras(b, elapsed, dt);
     this.accrueLoyalty(b, dt);
     this.runEndChecks(b);
   }
 
+  /** Spectators, notable-moment feed items, simulated chat and treasury bookkeeping. */
+  private liveExtras(b: Battle, elapsed: number, dt: number) {
+    const ta = this.tokens[b.a.tokenId];
+    const tb = this.tokens[b.b.tokenId];
+    const phase = (b.number % 7) * 0.9;
+    b.spectators = Math.round((60 + b.traders.size * 0.62) * (1 + 0.07 * Math.sin(this.now / 45_000 + phase))) + (this.spectating === b.id ? 1 : 0);
+
+    for (const s of [b.a, b.b]) {
+      const rt = this.side.get(`${b.id}:${s.tokenId}`)!;
+      const gained = this.markets[s.tokenId].holders - s.startHolders;
+      const step = 100;
+      if (gained >= rt.holderMilestone + step) {
+        rt.holderMilestone = Math.floor(gained / step) * step;
+        const tk = this.tokens[s.tokenId];
+        this.pushFeed(b, { kind: 'holders', tokenId: s.tokenId, text: `🎉 ${rt.holderMilestone} new ${tk.ticker} holders since the battle started` });
+      }
+    }
+    const prev = this.lastScoreAnnounce.get(b.id);
+    const ra = Math.round(b.a.score.total);
+    const rb = Math.round(b.b.score.total);
+    if (prev && (Math.abs(ra - prev[0]) >= 3 || Math.abs(rb - prev[1]) >= 3)) {
+      const [tk, from, to] = Math.abs(ra - prev[0]) >= Math.abs(rb - prev[1]) ? [ta, prev[0], ra] : [tb, prev[1], rb];
+      this.pushFeed(b, { kind: 'score', tokenId: tk.id, text: `📊 Battle Score changed: ${tk.ticker} ${from} → ${to}` });
+      this.lastScoreAnnounce.set(b.id, [ra, rb]);
+    }
+
+    // Simulated chat (only near "now" during the fast-forward so history stays small).
+    if (this.now > this.ffEnd - 8 * MINUTE) {
+      const rate = 0.03 + this.activity(b) * 0.3;
+      const n = poisson(rate * (dt / 1000));
+      for (let i = 0; i < n; i++) {
+        const line = makeChatLine(b, ta, tb, elapsed, rnd);
+        this.pushChat(b, { ...line });
+      }
+    }
+
+    const th = b.treasury.history.at(-1);
+    if (!th || elapsed - th.t >= MINUTE) b.treasury.history.push({ t: elapsed, balance: this.treasuryBalance(b) });
+    const lastFee = b.treasury.events.findLast((x) => x.kind === 'fees');
+    if (b.treasury.pendingFeesQuote > 0 && this.now - (lastFee?.t ?? b.startedAt!) >= 5 * MINUTE) {
+      const amt = b.treasury.pendingFeesQuote;
+      b.treasury.pendingFeesQuote = 0;
+      b.treasury.events.push({ id: `te${++this.idn}`, t: this.now, battleId: b.id, kind: 'fees', amountQuote: amt, text: `+${amt.toFixed(3)} SOL from swap fees (${TREASURY_FEE_SHARE * 100}% of the 1% pool fee)` });
+      if (b.treasury.events.length > 80) b.treasury.events.splice(1, 1);
+    }
+  }
+
+  private accrueFee(b: Battle, quoteAmt: number) {
+    if (b.status !== 'live') return;
+    const f = quoteAmt * 0.01 * TREASURY_FEE_SHARE;
+    b.treasury.feesQuote += f;
+    b.treasury.pendingFeesQuote += f;
+  }
+
+  private pushChat(b: Battle, m: Omit<Battle['chat'][number], 'id' | 't'>) {
+    b.chat.push({ id: `c${++this.idn}`, t: this.now, ...m });
+    if (b.chat.length > MAX_CHAT) b.chat.splice(0, b.chat.length - MAX_CHAT);
+  }
+
   /** Losing (and winning) tokens keep trading normally after the battle. */
   private stepPost(b: Battle, dt: number) {
+    if (b.endedAt && this.now - b.endedAt < 12 * MINUTE && this.now > this.ffEnd - 8 * MINUTE && rnd() < 0.04 * (dt / 1000)) {
+      const who = ['gm_gm', 'battlefan', 'holdooor', 'oracle', 'trader42'][Math.floor(rnd() * 5)];
+      this.pushChat(b, { user: who, avatar: '💬', text: POST_BATTLE_LINES[Math.floor(rnd() * POST_BATTLE_LINES.length)](this.tokens[b.winner!]) });
+    }
+    b.spectators = Math.max(0, Math.round(b.spectators * (1 - 0.002 * (dt / 1000))));
     for (const s of [b.a, b.b]) {
       const rt = this.side.get(`${b.id}:${s.tokenId}`);
       if (!rt) continue;
@@ -553,6 +907,11 @@ export class SimEngine implements BattleDataProvider {
     if (b.status === 'live') {
       s.battleVolumeQuote += quoteAmt;
       b.traders.add(wallet);
+      this.accrueFee(b, quoteAmt);
+      if (quoteAmt >= 1 && quoteAmt <= 3.5) {
+        const tk = this.tokens[s.tokenId];
+        this.pushFeed(b, { kind: 'trade', tokenId: s.tokenId, text: `Wallet ${wallet.slice(0, 4)}… ${side === 'buy' ? 'bought' : 'sold'} $${Math.round(quoteToUsd(quoteAmt)).toLocaleString('en-US')} ${tk.ticker}` });
+      }
     }
     this.pushTrade(b, { id: `t${++this.idn}`, t: this.now, tokenId: s.tokenId, wallet, side, quoteAmount: quoteAmt, tokenAmount: tokenAmt, price: m.price });
   }
@@ -614,6 +973,7 @@ export class SimEngine implements BattleDataProvider {
       }
       s.battleVolumeQuote += vol;
       s.flaggedVolumeQuote += vol;
+      this.accrueFee(b, vol);
       rt.bucketVol += vol;
       integ.events.unshift({
         id: `ie${++this.idn}`, t: this.now, tokenId: s.tokenId, severity: 'alert', kind, title: `${title} on $${tk.ticker}`,
@@ -677,6 +1037,7 @@ export class SimEngine implements BattleDataProvider {
       returnA: ma.price / b.a.startPrice - 1, returnB: mb.price / b.b.startPrice - 1,
       holderGrowthA: sa.inputs.holderGrowthPct, holderGrowthB: sb.inputs.holderGrowthPct,
       integrityA: b.integrity[b.a.tokenId].score, integrityB: b.integrity[b.b.tokenId].score, endCheck: check, hitCap,
+      holdersA: ma.holders, holdersB: mb.holders,
     };
     const id = b.id;
     this.history.push(
@@ -704,6 +1065,8 @@ export class SimEngine implements BattleDataProvider {
     if (!this.silent) {
       this.notify({ kind: 'battle-end', title: '⚔️ BATTLE OVER', body: `${w.logo} $${w.ticker} defeated $${l.ticker}.`, link: `/battle/${b.id}` });
     }
+    this.distributeTreasury(b);
+    if (b.tournamentId) this.advanceTournament(b);
     this.emit({ type: 'battle-end', battleId: b.id, winner: b.winner });
   }
 
@@ -716,6 +1079,7 @@ export class SimEngine implements BattleDataProvider {
       if (b.status === 'ended' && this.now - (b.endedAt ?? 0) < 25 * MINUTE) { busy.add(b.a.tokenId); busy.add(b.b.tokenId); }
     }
     busy.add('owl');
+    for (const t of Object.keys(this.tokens)) if (this.inActiveTournament(t)) busy.add(t);
     const free = Object.keys(this.tokens).filter((t) => !busy.has(t) && this.tokens[t].creatorId !== USER_CREATOR_ID);
     if (free.length < 2) return;
     const a = free[Math.floor(rnd() * free.length)];
@@ -777,6 +1141,7 @@ export class SimEngine implements BattleDataProvider {
       if (battle.status === 'live' && s) {
         s.battleVolumeQuote += trade.quoteAmount;
         battle.traders.add(w.address);
+        this.accrueFee(battle, trade.quoteAmount);
       }
     }
     return { ok: true, trade, signature: fakeAddress(rnd, 88), joinedArmy };

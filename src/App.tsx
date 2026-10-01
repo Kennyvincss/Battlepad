@@ -12,6 +12,9 @@ import { LeaderboardPage } from './pages/LeaderboardPage';
 import { CreatorPage, CreatorsPage } from './pages/CreatorsPage';
 import { PortfolioPage } from './pages/PortfolioPage';
 import { RulesPage } from './pages/RulesPage';
+import { SpectatorPage } from './pages/SpectatorPage';
+import { TournamentPage, TournamentsPage } from './pages/TournamentsPage';
+import { TreasuryPage } from './pages/TreasuryPage';
 
 export function App() {
   return (
@@ -22,6 +25,10 @@ export function App() {
             <Route element={<Layout />}>
               <Route index element={<BattlesPage />} />
               <Route path="battle/:id" element={<BattlePage />} />
+              <Route path="battle/:id/watch" element={<SpectatorPage />} />
+              <Route path="tournaments" element={<TournamentsPage />} />
+              <Route path="tournament/:id" element={<TournamentPage />} />
+              <Route path="treasury" element={<TreasuryPage />} />
               <Route path="token/:id" element={<TokenPage />} />
               <Route path="launch" element={<LaunchPage />} />
               <Route path="create-battle" element={<CreateBattlePage />} />

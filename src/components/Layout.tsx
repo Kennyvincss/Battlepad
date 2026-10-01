@@ -5,13 +5,16 @@ import { useUi } from './AppState';
 import { ago, short, sol } from '../lib/format';
 import { TokenLogo } from './ui';
 
+/** `sec` items fold into the "More" menu on mid-size screens so the bar never crowds. */
 const NAV = [
   { to: '/', label: 'Battles', icon: '⚔️', end: true },
+  { to: '/tournaments', label: 'Tournaments', icon: '🏆' },
   { to: '/launch', label: 'Launch', icon: '🚀' },
   { to: '/discover', label: 'Discover', icon: '🧭' },
-  { to: '/leaderboard', label: 'Leaderboard', icon: '🏆' },
-  { to: '/creators', label: 'Creators', icon: '🛠' },
-  { to: '/portfolio', label: 'My Portfolio', icon: '👤' },
+  { to: '/leaderboard', label: 'Leaderboard', icon: '📊' },
+  { to: '/creators', label: 'Creators', icon: '🛠', sec: true },
+  { to: '/treasury', label: 'Treasury', icon: '🏛', sec: true },
+  { to: '/portfolio', label: 'My Portfolio', icon: '👤', sec: true },
 ];
 
 export function Layout() {
@@ -41,12 +44,13 @@ function TopBar() {
         </Link>
         <nav className="nav-links hide-mobile">
           {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+            <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => `nav-link ${n.sec ? 'nav-sec' : ''} ${isActive ? 'active' : ''}`}>
               {n.label === 'Battles' && live > 0 && <span className="nav-live-dot" />}
               {n.label}
               {n.label === 'Battles' && live > 0 && <span className="mono muted" style={{ fontSize: 11 }}>{live}</span>}
             </NavLink>
           ))}
+          <MoreMenu />
         </nav>
         <div className="grow show-mobile" />
         <div className="nav-right">
@@ -133,17 +137,62 @@ function Notifications() {
   );
 }
 
-function MobileTabBar() {
-  const items = [NAV[0], NAV[1], { to: '/create-battle', label: 'Challenge', icon: '⚔️' }, NAV[3], NAV[5]];
+function MoreMenu() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const loc = useLocation();
+  useEffect(() => setOpen(false), [loc.pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const on = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', on);
+    return () => document.removeEventListener('mousedown', on);
+  }, [open]);
+  const active = NAV.some((n) => n.sec && loc.pathname.startsWith(n.to));
   return (
-    <nav className="mobile-tabbar">
-      {items.map((n) => (
-        <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `mtab ${isActive ? 'active' : ''} ${n.label === 'Challenge' ? 'mtab-cta' : ''}`}>
-          <span className="mtab-i">{n.icon}</span>
-          <span>{n.label === 'My Portfolio' ? 'Me' : n.label}</span>
-        </NavLink>
-      ))}
-    </nav>
+    <div ref={ref} className="nav-more">
+      <button className={`nav-link ${active ? 'active' : ''}`} onClick={() => setOpen(!open)} aria-expanded={open}>More ▾</button>
+      {open && (
+        <div className="panel more-menu">
+          {NAV.filter((n) => n.sec).map((n) => <NavLink key={n.to} to={n.to} className="more-item"><span>{n.icon}</span>{n.label}</NavLink>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MobileTabBar() {
+  const [menu, setMenu] = useState(false);
+  const loc = useLocation();
+  useEffect(() => setMenu(false), [loc.pathname]);
+  const items = [NAV[0], NAV[1], { to: '/create-battle', label: 'Challenge', icon: '⚔️' }, { to: '/portfolio', label: 'Me', icon: '👤' }];
+  const secondary = [NAV[2], NAV[3], NAV[4], NAV[5], NAV[6], { to: '/rules', label: 'How battles work', icon: '📜' }];
+  return (
+    <>
+      <nav className="mobile-tabbar">
+        {items.map((n) => (
+          <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `mtab ${isActive ? 'active' : ''} ${n.label === 'Challenge' ? 'mtab-cta' : ''}`}>
+            <span className="mtab-i">{n.icon}</span>
+            <span>{n.label}</span>
+          </NavLink>
+        ))}
+        <button className={`mtab ${menu ? 'active' : ''}`} onClick={() => setMenu(!menu)} aria-expanded={menu}>
+          <span className="mtab-i">☰</span><span>Menu</span>
+        </button>
+      </nav>
+      {menu && (
+        <div className="sheet-backdrop" onClick={(ev) => ev.target === ev.currentTarget && setMenu(false)}>
+          <div className="sheet menu-sheet">
+            <div className="sheet-handle" />
+            <div className="menu-grid">
+              {secondary.map((n) => (
+                <NavLink key={n.to} to={n.to} className="menu-item"><span className="menu-i">{n.icon}</span>{n.label}</NavLink>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
