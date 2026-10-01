@@ -1,5 +1,5 @@
 import type {
-  Battle, BattleId, BattleRecordEntry, BattleRules, BattleSideState, Challenge, Creator, EndCheck, FeedItem,
+  Battle, BattleId, BattleRecordEntry, BattleRules, BattleSideState, BattleType, Challenge, Creator, EndCheck, FeedItem,
   IntegrityEvent, IntegrityState, Market, Notification, Token, TokenId, Trade, TradeSide, Wallet,
 } from '../data/types';
 import type {
@@ -99,13 +99,17 @@ export class SimEngine implements BattleDataProvider {
 
     // Live battles, started in the (simulated) past – fast-forwarded below.
     const featured = this.createBattle('frog', 'cat', makeRules(), realNow - 56 * MINUTE, { featured: true });
-    this.createBattle('wolf', 'fox', makeRules(), realNow - 68 * MINUTE);
-    this.createBattle('shark', 'octo', makeRules({ type: 'blitz' }), realNow - 63 * MINUTE);
-    this.createBattle('ape', 'tiger', makeRules(), realNow - 41 * MINUTE);
-    this.createBattle('panda', 'eagle', makeRules({ type: 'marathon' }), realNow - 23 * MINUTE);
+    const LIVE: [string, string, number, BattleType?][] = [
+      ['wolf', 'fox', 68], ['shark', 'octo', 63, 'blitz'], ['ape', 'tiger', 41], ['panda', 'eagle', 23, 'marathon'],
+      ['lion', 'bee', 49], ['uni', 'whale', 33], ['croc', 'peng', 17, 'blitz'], ['sloth', 'otter', 61],
+      ['koala', 'bat', 38], ['crab', 'snail', 12], ['turtle', 'parrot', 52, 'marathon'], ['robot', 'alien', 29],
+      ['pizza', 'rocket', 44], ['gem', 'bolt', 66], ['mush', 'cactus', 9, 'blitz'],
+    ];
+    for (const [a, b, ago, type] of LIVE) this.createBattle(a, b, makeRules({ type, rewardPoolQuote: 100 + Math.round(rnd() * 15) * 10 }), realNow - ago * MINUTE);
     // Upcoming
     this.createBattle('dog', 'bull', makeRules(), realNow + 6 * MINUTE);
     this.createBattle('moon', 'dragon', makeRules({ type: 'blitz', rewardPoolQuote: 220 }), realNow + 14 * MINUTE);
+    this.createBattle('skull', 'rhino', makeRules(), realNow + 22 * MINUTE);
     this.createBattle('bear', 'pepe', makeRules({ minDurationMs: 2 * HOUR }), realNow + 31 * MINUTE);
 
     // Incoming challenge for the user's token.
@@ -318,6 +322,17 @@ export class SimEngine implements BattleDataProvider {
     this.notifications = this.notifications.slice(0, 40);
   }
 
+  /** Per-battle trading intensity (trades/s per side), stable for the battle's lifetime. */
+  private activityLevel = new Map<BattleId, number>();
+  private activity(b: Battle) {
+    let a = this.activityLevel.get(b.id);
+    if (a === undefined) {
+      a = b.featured ? 0.4 : 0.14 + rnd() * 0.24;
+      this.activityLevel.set(b.id, a);
+    }
+    return a;
+  }
+
   private makeMarket(tokenId: TokenId, mcapQuote: number): Market {
     const price = mcapQuote / 1_000_000_000;
     const reserveQuote = Math.max(40, mcapQuote * 0.16);
@@ -418,7 +433,7 @@ export class SimEngine implements BattleDataProvider {
   private stepLive(b: Battle, dt: number) {
     const elapsed = this.now - (b.startedAt ?? this.now);
     const tension = elapsed > b.rules.randomEnd.minDurationMs ? 1.35 : 1;
-    const base = b.featured ? 0.42 : 0.2;
+    const base = this.activity(b);
     for (const s of [b.a, b.b]) {
       const rt = this.side.get(`${b.id}:${s.tokenId}`)!;
       this.maybeIntegrityEvents(b, s, rt);
@@ -695,7 +710,7 @@ export class SimEngine implements BattleDataProvider {
   /** Keep the arena busy: when battles end, new challenges get scheduled. */
   private keepPipelineFull() {
     const active = this.battles.filter((b) => b.status === 'live' || b.status === 'scheduled' || b.status === 'pending');
-    if (active.length >= 8) return;
+    if (active.length >= 22) return;
     const busy = new Set(active.flatMap((b) => [b.a.tokenId, b.b.tokenId]));
     for (const b of this.battles) {
       if (b.status === 'ended' && this.now - (b.endedAt ?? 0) < 25 * MINUTE) { busy.add(b.a.tokenId); busy.add(b.b.tokenId); }

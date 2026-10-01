@@ -30,7 +30,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     if (e.type === 'battle-end') {
       const b = engine.getBattle(e.battleId);
       const w = engine.tokens[e.winner];
-      if (b && !b.featured && !location.hash.includes(b.id)) {
+      const mine = b && [b.a.tokenId, b.b.tokenId].some((t) => (engine.wallet.positions[t]?.amount ?? 0) > 0);
+      if (b && mine && !location.hash.includes(b.id)) {
         toast({ title: `🏆 ${w.logo} $${w.ticker} wins`, body: `Battle over after ${Math.round((b.final?.durationMs ?? 0) / 60000)}m. The losing token keeps trading.`, tone: 'info' });
       }
     }

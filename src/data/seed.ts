@@ -32,6 +32,30 @@ const TOKEN_SEEDS: TokenSeed[] = [
   ['moon', 'MOON', 'Moonshot', '🌙', 245, 'c-astro', 'Literally the moon.'],
   ['dragon', 'DRAGON', 'Jade Dragon', '🐉', 158, 'c-astro', 'Ancient power, fresh mint.'],
   ['ghost', 'GHOST', 'Ghost Protocol', '👻', 180, 'c-nyx', 'Now you see it, now you HODL.'],
+  ['lion', 'LION', 'Pride Lion', '🦁', 40, 'c-luna', 'King of the order book.'],
+  ['bee', 'BEE', 'Hive Mind', '🐝', 52, 'c-rex', 'Thousands of holders, one hive.'],
+  ['uni', 'UNI', 'Unicorn Club', '🦄', 300, 'c-astro', 'Rare by design.'],
+  ['whale', 'WHALE', 'Blue Whale', '🐳', 205, 'c-reef', 'Big splashes only.'],
+  ['croc', 'CROC', 'Croc Swamp', '🐊', 118, 'c-banana', 'Patient. Then sudden.'],
+  ['peng', 'PENG', 'Penguin Pack', '🐧', 214, 'c-luna', 'Cold hands, warm community.'],
+  ['sloth', 'SLOTH', 'Slow Sloth', '🦥', 32, 'c-banana', 'Holding is a lifestyle.'],
+  ['otter', 'OTTER', 'Otter Raft', '🦦', 24, 'c-reef', 'We hold hands while we hold.'],
+  ['koala', 'KOALA', 'Koala Kingdom', '🐨', 255, 'c-luna', 'Eucalyptus-powered.'],
+  ['bat', 'BAT', 'Night Bat', '🦇', 285, 'c-nyx', 'Flies when charts are dark.'],
+  ['crab', 'CRAB', 'Crab Market', '🦀', 4, 'c-reef', 'Sideways is a direction.'],
+  ['snail', 'SNAIL', 'Turbo Snail', '🐌', 72, 'c-rex', 'Slow start, strong finish.'],
+  ['turtle', 'TURTLE', 'Shell Shock', '🐢', 132, 'c-kermit', 'Armoured holders.'],
+  ['parrot', 'PARROT', 'Loud Parrot', '🦜', 108, 'c-banana', 'Repeats only bullish things.'],
+  ['robot', 'ROBOT', 'Robo Rally', '🤖', 198, 'c-astro', 'Beep boop, buy.'],
+  ['alien', 'ALIEN', 'Area 51', '👽', 150, 'c-astro', 'Not from this chain.'],
+  ['pizza', 'PIZZA', 'Pizza Day', '🍕', 22, 'c-banana', '10,000 tokens for two pizzas.'],
+  ['rocket', 'ROCKET', 'Rocket Fuel', '🚀', 352, 'c-astro', 'T-minus nothing.'],
+  ['gem', 'GEM', 'Hidden Gem', '💎', 190, 'c-kermit', 'Found, not mined.'],
+  ['bolt', 'BOLT', 'Lightning Bolt', '⚡', 56, 'c-rex', 'Fast blocks, faster memes.'],
+  ['mush', 'MUSH', 'Mushroom Kingdom', '🍄', 0, 'c-kermit', 'Grows overnight.'],
+  ['cactus', 'CACTUS', 'Desert Cactus', '🌵', 125, 'c-ursa', 'Survives every bear market.'],
+  ['skull', 'SKULL', 'Skull Society', '💀', 270, 'c-nyx', 'Diamond bones.'],
+  ['rhino', 'RHINO', 'Rhino Charge', '🦏', 215, 'c-ursa', 'Charges straight up.'],
 ];
 
 export const TOKENS: Token[] = TOKEN_SEEDS.map(([id, ticker, name, logo, hue, creatorId, description]) => ({
@@ -47,6 +71,9 @@ export const TOKENS: Token[] = TOKEN_SEEDS.map(([id, ticker, name, logo, hue, cr
 export const START_MCAP: Record<string, number> = {
   frog: 2000, cat: 2150, dog: 2400, pepe: 1500, bear: 1300, bull: 1900, wolf: 2600, fox: 2300, owl: 1150,
   shark: 3100, octo: 2800, ape: 1800, tiger: 1700, panda: 1400, eagle: 1600, moon: 2100, dragon: 2500, ghost: 1250,
+  lion: 2200, bee: 1350, uni: 2900, whale: 3300, croc: 1450, peng: 1600, sloth: 900, otter: 1100, koala: 1250, bat: 1050,
+  crab: 950, snail: 800, turtle: 1700, parrot: 1200, robot: 2400, alien: 2050, pizza: 1500, rocket: 2700, gem: 1900, bolt: 1650,
+  mush: 1000, cactus: 1150, skull: 1350, rhino: 1750,
 };
 
 /** Hidden "community strength" used only to make archived history varied. */
@@ -104,11 +131,13 @@ export function generateHistory(): BattleRecordEntry[] {
   FROG_SCRIPT.forEach(([opp, won], i) => push('frog', opp, won, now - (FROG_SCRIPT.length - i) * 2.6 * DAY + 9 * 60 * MINUTE));
 
   const ids = TOKENS.map((t) => t.id).filter((id) => id !== 'frog');
-  for (let i = 0; i < 70; i++) {
+  for (let i = 0; i < 160; i++) {
     const a = pick(r, ids);
     let b = pick(r, ids);
     while (b === a) b = pick(r, ids);
-    const pa = STRENGTH[a] / (STRENGTH[a] + STRENGTH[b]);
+    const sa = STRENGTH[a] ?? 0.5;
+    const sb = STRENGTH[b] ?? 0.5;
+    const pa = sa / (sa + sb);
     push(a, b, r() < pa, now - range(r, 0.15, 28) * DAY);
   }
   return out.sort((x, y) => x.endedAt - y.endedAt);
