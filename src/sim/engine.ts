@@ -121,12 +121,12 @@ export class SimEngine implements BattleDataProvider {
 
     // Live battles, started in the (simulated) past – fast-forwarded below.
     // Live tournament: its quarterfinals are ordinary live battles (FROG vs CAT is the headline match).
-    const apex = this.createTournament({
-      name: 'Apex Cup', tagline: 'Eight armies. One champion.', hue: 45, prize: 1200,
+    const daily = this.createTournament({
+      name: 'Runner of the Day', tagline: 'Eight armies race through today\'s bracket. One Runner of the Day.', hue: 45, prize: 1200,
       tokens: ['frog', 'cat', 'wolf', 'fox', 'lion', 'bee', 'uni', 'whale'], start: realNow - 68 * MINUTE,
       matchStarts: [realNow - 56 * MINUTE, realNow - 68 * MINUTE, realNow - 49 * MINUTE, realNow - 33 * MINUTE], featuredSlot: 0,
     });
-    const featured = this.getBattle(apex.rounds[0][0].battleId!)!;
+    const featured = this.getBattle(daily.rounds[0][0].battleId!)!;
     this.createTournament({ name: 'Night Owl Invitational', tagline: 'Four night-shift armies, one bracket.', hue: 268, prize: 600, tokens: ['owl', 'ghost', 'bat', 'skull'], start: realNow + 48 * MINUTE });
     this.createTournament({ name: 'Sky Series', tagline: 'High-flying tokens, eight-way bracket.', hue: 200, prize: 1600, tokens: ['eagle', 'rocket', 'robot', 'alien', 'gem', 'bolt', 'koala', 'panda'], start: realNow + 3 * HOUR });
     const LIVE: [string, string, number, BattleType?][] = [
