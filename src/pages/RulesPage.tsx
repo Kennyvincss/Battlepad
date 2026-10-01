@@ -1,5 +1,5 @@
 import { RulesContent } from '../components/BattleInfo';
-import { makeRules } from '../lib/rules';
+import { makeRules } from '../lib/shared';
 
 export function RulesPage() {
   return (

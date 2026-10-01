@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Battle } from '../data/types';
 import { useData } from '../data/DataContext';
-import { roundName } from '../sim/engine';
+import { roundName } from '../live/store';
 import { useUi } from './AppState';
 import { duration, num, pct } from '../lib/format';
 import { battleIntegrity, cardVariants, headToHead, type CardVariant } from '../lib/view';
@@ -53,7 +53,7 @@ export function ShareCard({ battle, showView = false }: { battle: Battle; showVi
   const streak = e.recordFor(W.id).streak;
   const margin = ws.total - ls.total;
   const t = e.tournamentOf(battle);
-  const match = t?.rounds.flat().find((m) => m.id === battle.matchId);
+  const match = e.matchOf(battle);
   const isFinal = t && match && match.round === t.rounds.length - 1;
   const h2h = headToHead(e, W.id, L.id);
   const integrity = Math.round((f.integrityA + f.integrityB) / 2);
@@ -68,7 +68,7 @@ export function ShareCard({ battle, showView = false }: { battle: Battle; showVi
     standard: 'VICTORY',
   };
   const tweet = [
-    `⚔️ BATTLE #${battle.number}: ${W.logo} $${W.ticker} vs ${L.logo} $${L.ticker}`,
+    `⚔️ BATTLE #${battle.number}: $${W.ticker} vs $${L.ticker}`,
     `🏆 $${W.ticker} WON ${ws.total.toFixed(0)}–${ls.total.toFixed(0)} after ${duration(f.durationMs)}`,
     streak >= 2 ? `🔥 ${streak} battle win streak` : '',
     t ? `🏆 ${t.name}` : '',
@@ -95,7 +95,7 @@ export function ShareCard({ battle, showView = false }: { battle: Battle; showVi
         </div>
         <div className="scard-main">
           <div className="scard-side win">
-            <TokenLogo token={W} size={0} className="scard-logo" />
+            <TokenLogo token={W} size={100} className="scard-logo" />
             <div className="scard-ticker" style={{ color: sideColor(W.hue, 70) }}>{W.ticker}</div>
             <div className="scard-won">🏆 {variant === 'tournament' && isFinal ? 'CHAMPION' : 'WON'}</div>
           </div>
@@ -105,7 +105,7 @@ export function ShareCard({ battle, showView = false }: { battle: Battle; showVi
             <div className="scard-dur">⏱ {duration(f.durationMs)}</div>
           </div>
           <div className="scard-side lose">
-            <TokenLogo token={L} size={0} className="scard-logo" />
+            <TokenLogo token={L} size={100} className="scard-logo" />
             <div className="scard-ticker scard-lose">{L.ticker}</div>
             <div className="scard-lost">Keeps trading</div>
           </div>
@@ -118,8 +118,8 @@ export function ShareCard({ battle, showView = false }: { battle: Battle; showVi
               <div key={token.id} className={`scard-stat ${won ? 'win' : ''}`}>
                 <b style={{ color: won ? sideColor(token.hue, 70) : undefined }}>{token.ticker}</b>
                 <span><i className={s.perf >= 0 ? 'up' : 'down'}>{pct(s.perf, 0)}</i> price</span>
-                <span><i className={s.growth >= 0 ? 'up' : 'down'}>{pct(s.growth, 0)}</i> holder growth</span>
-                <span><i>{num(s.holders, false)}</i> holders</span>
+                {s.growth !== null && <span><i className={s.growth >= 0 ? 'up' : 'down'}>{pct(s.growth, 0)}</i> holder growth</span>}
+                {s.holders !== null && <span><i>{num(s.holders, false)}</i> holders</span>}
               </div>
             );
           })}
@@ -127,7 +127,7 @@ export function ShareCard({ battle, showView = false }: { battle: Battle; showVi
         <div className="scard-foot">
           {streak >= 2 ? <span className="scard-streak">🔥 {W.ticker} WIN STREAK <b>{streak}</b></span> : <span className="scard-streak dim">First win of a new streak</span>}
           <span>🛡 Integrity {integrity}%</span>
-          <span className="scard-sim">◇ simulated</span>
+          <span className="scard-sim">battle.fun · Solana</span>
         </div>
       </div>
       {variants.length > 1 && (
@@ -142,7 +142,7 @@ export function ShareCard({ battle, showView = false }: { battle: Battle; showVi
         <button className="btn" onClick={onShare}>↗ Share</button>
         {showView && <Link className="btn" to={`/battle/${battle.id}`}>⚔️ View Battle</Link>}
       </div>
-      <div className="dim" style={{ fontSize: 11, marginTop: 6 }}>Battle integrity {battleIntegrity(battle)}% · values are simulated in this prototype.</div>
+      <div className="dim" style={{ fontSize: 11, marginTop: 6 }}>Battle integrity {battleIntegrity(battle)}% · final values recorded by the battle keeper.</div>
     </div>
   );
 }

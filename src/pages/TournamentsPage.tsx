@@ -1,19 +1,19 @@
 import { Link, useParams } from 'react-router-dom';
 import type { TokenId, Tournament, TournamentMatch } from '../data/types';
 import { useData } from '../data/DataContext';
-import { roundName } from '../sim/engine';
-import { ago, duration, quoteToUsd, sol, usd } from '../lib/format';
+import { roundName } from '../live/store';
+import { ago, duration } from '../lib/format';
 import { BattleCard } from '../components/BattleCard';
-import { SimPill, TokenLogo, sideColor } from '../components/ui';
-import type { SimEngine } from '../sim/engine';
+import { SourceTag, TokenLogo, sideColor } from '../components/ui';
+import type { LiveStore } from '../live/store';
 
-function tournamentDuration(e: SimEngine, t: Tournament) {
+function tournamentDuration(e: LiveStore, t: Tournament) {
   if (t.status === 'upcoming') return `Starts in ${duration(Math.max(0, t.scheduledStart - e.now))}`;
   const ms = (t.endedAt ?? e.now) - (t.startedAt ?? t.scheduledStart);
   return t.status === 'completed' ? `Ran ${duration(ms)}` : `Running ${duration(ms)}`;
 }
 
-function liveMatches(e: SimEngine, t: Tournament) {
+function liveMatches(e: LiveStore, t: Tournament) {
   return t.rounds.flat().filter((m) => m.battleId && e.getBattle(m.battleId)?.status === 'live');
 }
 
@@ -46,7 +46,7 @@ export function TournamentCard({ t }: { t: Tournament }) {
       <div className="tcard-stats">
         <div><span className="stat-l">Tokens</span><span className="mono">{t.size}</span></div>
         <div><span className="stat-l">{t.status === 'completed' ? 'Rounds' : 'Round'}</span><span className="mono">{t.status === 'completed' ? t.rounds.length : `${roundName(t, r)}`}</span></div>
-        <div><span className="stat-l">Prize pool</span><span className="mono gold">{usd(quoteToUsd(t.prizePoolQuote))}</span></div>
+        <div><span className="stat-l">Prize</span><span className="gold truncate" style={{ fontSize: 12 }}>{t.prizeNote ?? 'Glory + treasuries'}</span></div>
       </div>
       <div className="tcard-foot">
         {champ ? <span className="row" style={{ gap: 6 }}>👑 Champion <TokenLogo token={champ} size={18} /><b style={{ color: sideColor(champ.hue, 70) }}>{champ.ticker}</b></span>
@@ -62,7 +62,6 @@ export function TournamentsPage() {
   const e = useData();
   const groups: [string, Tournament['status']][] = [['Active tournaments', 'live'], ['Upcoming tournaments', 'upcoming'], ['Completed tournaments', 'completed']];
   const live = e.tournaments.filter((t) => t.status === 'live');
-  const prize = e.tournaments.filter((t) => t.status !== 'completed').reduce((s, t) => s + t.prizePoolQuote, 0);
   return (
     <div className="page">
       <div className="page-head">
@@ -72,8 +71,8 @@ export function TournamentsPage() {
         </div>
         <div className="home-ticker">
           <div><span className="live-dot" /><b className="mono">{live.length}</b><span className="muted">live</span></div>
-          <div><b className="mono gold">{usd(quoteToUsd(prize))}</b><span className="muted">in open prize pools</span></div>
-          <SimPill />
+          <div><b className="mono">{e.tournaments.filter((t) => t.status === 'upcoming').length}</b><span className="muted">upcoming</span></div>
+          <SourceTag text="Live · Solana" />
         </div>
       </div>
       {groups.map(([title, st]) => {
@@ -98,7 +97,7 @@ function MatchBox({ t, m }: { t: Tournament; m: TournamentMatch }) {
   const live = b?.status === 'live';
   const scoreOf = (side: 'a' | 'b') => {
     if (m.scoreA !== undefined) return side === 'a' ? m.scoreA : m.scoreB!;
-    if (b && b.status !== 'scheduled' && b.status !== 'pending') return side === 'a' ? b.a.score.total : b.b.score.total;
+    if (b && b.status === 'live') return side === 'a' ? b.a.score?.total : b.b.score?.total;
     return undefined;
   };
   const row = (id: TokenId | undefined, side: 'a' | 'b') => {
@@ -173,20 +172,19 @@ export function TournamentPage() {
   const live = battles.filter((b) => b.status === 'live' || b.status === 'scheduled');
   const done = t.rounds.flat().filter((m) => m.winner).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0));
   const champ = t.champion ? e.tokens[t.champion] : undefined;
-  const prizes = [['Champion', 0.5], ['Runner-up', 0.25], ['Semifinalists (×2)', 0.25]] as const;
-  return (
+    return (
     <div className="page">
       <div className="t-hero panel" style={{ '--h': t.hue } as React.CSSProperties}>
         <div className="tcard-glow" />
         <div className="grow" style={{ position: 'relative' }}>
-          <div className="row" style={{ gap: 8 }}><Link to="/tournaments" className="btn btn-ghost btn-sm">← Tournaments</Link><StatusTag t={t} /><SimPill /></div>
+          <div className="row" style={{ gap: 8 }}><Link to="/tournaments" className="btn btn-ghost btn-sm">← Tournaments</Link><StatusTag t={t} /><SourceTag text="Live · Solana" /></div>
           <h1 className="page-title" style={{ marginTop: 12 }}>🏆 {t.name}</h1>
           <div className="page-sub">{t.tagline} Every match uses the standard battle rules: 1-hour minimum, random verifiable end, 60/20/20 Battle Score.</div>
         </div>
         <div className="t-hero-stats">
           <div><span className="stat-l">Tokens</span><span className="stat-v">{t.size}</span></div>
           <div><span className="stat-l">Current round</span><span className="stat-v" style={{ fontSize: 18 }}>{t.status === 'upcoming' ? '—' : t.status === 'completed' ? 'Finished' : roundName(t, r)}</span></div>
-          <div><span className="stat-l">Prize pool</span><span className="stat-v gold">{usd(quoteToUsd(t.prizePoolQuote))}</span></div>
+          <div><span className="stat-l">Prize</span><span className="stat-v gold" style={{ fontSize: 16 }}>{t.prizeNote ?? '—'}</span></div>
           <div><span className="stat-l">Duration</span><span className="stat-v" style={{ fontSize: 16 }}>{tournamentDuration(e, t)}</span></div>
         </div>
       </div>
@@ -234,13 +232,11 @@ export function TournamentPage() {
           </div>
         </div>
         <div className="panel">
-          <div className="panel-head"><span className="panel-title">💰 Prize pool</span><span className="mono gold">{sol(t.prizePoolQuote, 0)}</span></div>
+          <div className="panel-head"><span className="panel-title">💰 Prizes & treasuries</span></div>
           <div className="panel-pad col" style={{ gap: 10 }}>
-            {prizes.map(([k, v]) => (
-              <div key={k} className="tre-split-row"><span className="grow">{k}</span><span className="dim">{v * 100}%</span><span className="mono" style={{ fontWeight: 700 }}>{usd(quoteToUsd(t.prizePoolQuote * v))}</span></div>
-            ))}
+            <div className="muted" style={{ fontSize: 13 }}>{t.prizeNote ?? 'No extra prize was announced for this tournament.'}</div>
             <hr className="divider" />
-            <div className="muted" style={{ fontSize: 12.5 }}>Each match also has its own Battle Treasury ({sol(t.rules.rewardPoolQuote, 0)} funded + swap fees) with the standard 50 / 25 / 25 split. Prizes are paid when the final ends. Winning does not guarantee price appreciation.</div>
+            <div className="muted" style={{ fontSize: 12.5 }}>Every match is a normal battle with its own treasury (funded by BATTLE's swap fee during that match) and the standard {Math.round(t.rules.rewardSplit.winnerLiquidity * 100)} / {Math.round(t.rules.rewardSplit.holderRewards * 100)} / {Math.round(t.rules.rewardSplit.platform * 100)} split. Winning does not guarantee price appreciation.</div>
           </div>
         </div>
       </div>

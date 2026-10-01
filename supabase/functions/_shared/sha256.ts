@@ -1,8 +1,8 @@
 /**
  * Small synchronous SHA-256 (FIPS 180-4). Used for the verifiable random-end
  * checks and the rules commitment hash, so anyone can recompute results with a
- * standard sha256 tool. Synchronous on purpose: end checks run inside the
- * simulation tick.
+ * standard sha256 tool. Synchronous and dependency-free so the same code runs in
+ * the browser (Vite) and in the battle keeper (Deno).
  */
 const K = new Uint32Array([
   0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,

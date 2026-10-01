@@ -1,104 +1,80 @@
-import type { Battle, BattleSideState } from '../data/types';
-import type { SimEngine } from '../sim/engine';
-import { liquidityQuote } from './amm';
-import { quoteToUsd } from './format';
+import type { Battle, BattleDetail, IntegrityEvent, Token } from '../data/types';
+import type { LiveStore } from '../live/store';
 
 export interface SideView {
-  side: BattleSideState;
-  token: SimEngine['tokens'][string];
-  price: number;
-  mcapUsd: number;
-  change: number;
-  liquidityUsd: number;
-  holders: number;
-  holdersDelta: number;
+  token: Token;
+  price: number | null;
+  mcapUsd: number | null;
+  change: number | null;
+  liquidityUsd: number | null;
+  holders: number | null;
+  holdersDelta: number | null;
   volumeUsd: number;
   buyers: number;
   sellers: number;
-  score: number;
+  score: number | null;
   position: 1 | 2;
   integrity: number;
-  spark: number[];
 }
 
-export function sideView(e: SimEngine, b: Battle, which: 'a' | 'b'): SideView {
+/**
+ * View model for one side. Prices/market caps come from the freshest source
+ * (DexScreener poll, ~20s); scores and battle stats come from the keeper.
+ */
+export function sideView(e: LiveStore, b: Battle, which: 'a' | 'b'): SideView {
   const s = b[which];
-  const other = which === 'a' ? b.b : b.a;
-  const token = e.tokens[s.tokenId];
+  const o = which === 'a' ? b.b : b.a;
+  const token = e.tokens[s.tokenId] ?? { id: s.tokenId, mint: s.tokenId, ticker: '???', name: 'Unknown', hue: 200, pairAddress: '', socials: {}, listedBy: '', listedAt: 0 };
   const m = e.markets[s.tokenId];
   const ended = b.status === 'ended' && b.final;
-  const score = ended ? (which === 'a' ? b.final!.scoreA.total : b.final!.scoreB.total) : s.score.total;
-  const otherScore = ended ? (which === 'a' ? b.final!.scoreB.total : b.final!.scoreA.total) : other.score.total;
-  const live = b.status === 'live' || b.status === 'ended';
-  const hist = s.history;
-  const step = Math.max(1, Math.floor(hist.length / 40));
-  const spark: number[] = [];
-  for (let i = 0; i < hist.length; i += step) spark.push(hist[i].price);
-  if (hist.length) spark.push(m.price);
-  const winnerPos = b.winner ? (b.winner === s.tokenId ? 1 : 2) : score >= otherScore ? 1 : 2;
+  const score = ended ? (which === 'a' ? b.final!.scoreA.total : b.final!.scoreB.total) : s.score?.total ?? null;
+  const other = ended ? (which === 'a' ? b.final!.scoreB.total : b.final!.scoreA.total) : o.score?.total ?? null;
+  const price = m?.priceUsd ?? s.priceUsd;
+  const started = b.status === 'live' || b.status === 'ended';
+  const holders = s.holders;
+  const position = b.winner ? (b.winner === s.tokenId ? 1 : 2) : score !== null && other !== null ? (score >= other ? 1 : 2) : which === 'a' ? 1 : 2;
   return {
-    side: s, token, price: m.price,
-    mcapUsd: quoteToUsd(m.price * token.totalSupply),
-    change: live ? m.price / s.startPrice - 1 : 0,
-    liquidityUsd: quoteToUsd(liquidityQuote(m)),
-    holders: m.holders,
-    holdersDelta: live ? m.holders - s.startHolders : 0,
-    volumeUsd: quoteToUsd(s.battleVolumeQuote),
-    buyers: s.buyers.size,
-    sellers: s.sellers.size,
+    token, price,
+    mcapUsd: m?.mcapUsd ?? s.mcapUsd,
+    change: started && price && s.startPrice ? price / s.startPrice - 1 : m?.change24 ?? null,
+    liquidityUsd: m?.liquidityUsd ?? s.liquidityUsd,
+    holders,
+    holdersDelta: started && holders !== null && s.startHolders !== null ? holders - s.startHolders : null,
+    volumeUsd: s.volumeUsd,
+    buyers: s.buyers,
+    sellers: s.sellers,
     score,
-    position: winnerPos as 1 | 2,
-    integrity: b.integrity[s.tokenId]?.score ?? 100,
-    spark,
+    position: position as 1 | 2,
+    integrity: s.volumeUsd > 0 ? Math.round(100 * (1 - s.flaggedUsd / s.volumeUsd)) : 100,
   };
 }
 
 export function battleIntegrity(b: Battle) {
-  const vol = b.a.battleVolumeQuote + b.b.battleVolumeQuote;
-  const flagged = b.a.flaggedVolumeQuote + b.b.flaggedVolumeQuote;
+  if (b.final) return Math.round((b.final.integrityA + b.final.integrityB) / 2);
+  const vol = b.a.volumeUsd + b.b.volumeUsd;
+  const flagged = b.a.flaggedUsd + b.b.flaggedUsd;
   return vol > 0 ? Math.round(100 * (1 - flagged / vol)) : 100;
 }
 
-export function recentAlert(e: SimEngine, b: Battle, windowMs = 12 * 60_000) {
-  const evs = [...b.integrity[b.a.tokenId].events, ...b.integrity[b.b.tokenId].events]
-    .filter((x) => x.severity === 'alert' && e.now - x.t < windowMs)
-    .sort((x, y) => y.t - x.t);
-  return evs[0];
+export function recentAlert(e: LiveStore, d: BattleDetail | undefined, windowMs = 12 * 60_000): IntegrityEvent | undefined {
+  return d?.integrity.filter((x) => x.severity === 'alert' && e.now - x.t < windowMs).sort((x, y) => y.t - x.t)[0];
 }
 
-export function combinedVolumeUsd(b: Battle) {
-  return quoteToUsd(b.a.battleVolumeQuote + b.b.battleVolumeQuote);
-}
+export const combinedVolumeUsd = (b: Battle) => b.a.volumeUsd + b.b.volumeUsd;
 
-/** Profile stats for the demo wallet: seeded history (simulated) + this session's activity. */
-export function userStats(e: SimEngine) {
-  const armies = Object.entries(e.wallet.armies);
-  const endedArmies = armies.filter(([bid]) => e.getBattle(bid)?.status === 'ended');
-  const won = endedArmies.filter(([bid, tid]) => e.getBattle(bid)?.winner === tid).length;
-  return {
-    totalTrades: 137 + e.wallet.trades.length,
-    battles: 23 + armies.length,
-    winningSides: 15 + won,
-    rewardsQuote: e.wallet.claimedRewardsQuote,
-    loyaltyPoints: e.wallet.loyaltyPoints,
-  };
-}
-
-export function isRematch(e: SimEngine, b: Battle) {
+export function isRematch(e: LiveStore, b: Battle) {
   const start = b.startedAt ?? b.scheduledStart;
   return e.history.some((h) => h.battleId !== b.id && h.tokenId === b.a.tokenId && h.opponentId === b.b.tokenId && h.endedAt < start);
 }
 
-/** Head-to-head series between the two tokens, including this battle if finished. */
-export function headToHead(e: SimEngine, aId: string, bId: string) {
+export function headToHead(e: LiveStore, aId: string, bId: string) {
   const games = e.history.filter((h) => h.tokenId === aId && h.opponentId === bId);
   return { a: games.filter((g) => g.won).length, b: games.filter((g) => !g.won).length };
 }
 
 export type CardVariant = 'tournament' | 'streak' | 'close' | 'dominant' | 'rematch' | 'standard';
 
-/** Which result-card treatments apply, most distinctive first. */
-export function cardVariants(e: SimEngine, b: Battle): CardVariant[] {
+export function cardVariants(e: LiveStore, b: Battle): CardVariant[] {
   if (!b.final || !b.winner) return ['standard'];
   const margin = Math.abs(b.final.scoreA.total - b.final.scoreB.total);
   const out: CardVariant[] = [];
@@ -109,4 +85,10 @@ export function cardVariants(e: SimEngine, b: Battle): CardVariant[] {
   if (isRematch(e, b)) out.push('rematch');
   out.push('standard');
   return out;
+}
+
+/** Trader profile stats for the connected wallet, from battle trades indexed by the keeper. */
+export function walletBattles(e: LiveStore, wallet: string | undefined) {
+  if (!wallet) return [];
+  return Object.entries(e.armies).map(([battleId, tokenId]) => ({ battle: e.getBattle(battleId), tokenId })).filter((x) => x.battle);
 }

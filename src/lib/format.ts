@@ -1,6 +1,5 @@
-export const SOL_USD = 152.4; // Simulated quote-asset reference price.
-
-export function usd(v: number, opts: { compact?: boolean; decimals?: number } = {}) {
+export function usd(v: number | null | undefined, opts: { compact?: boolean; decimals?: number } = {}) {
+  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
   const { compact = true, decimals } = opts;
   const abs = Math.abs(v);
   const sign = v < 0 ? '-' : '';
@@ -11,14 +10,13 @@ export function usd(v: number, opts: { compact?: boolean; decimals?: number } = 
   return `${sign}$${abs.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })}`;
 }
 
-export const quoteToUsd = (q: number) => q * SOL_USD;
-
 export function sol(v: number, decimals?: number) {
-  const d = decimals ?? (Math.abs(v) >= 100 ? 1 : Math.abs(v) >= 1 ? 2 : 3);
+  const d = decimals ?? (Math.abs(v) >= 100 ? 1 : Math.abs(v) >= 1 ? 2 : 4);
   return `${v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })} SOL`;
 }
 
-export function num(v: number, compact = true) {
+export function num(v: number | null | undefined, compact = true) {
+  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
   const abs = Math.abs(v);
   if (compact && abs >= 1e9) return `${(v / 1e9).toFixed(2)}B`;
   if (compact && abs >= 1e6) return `${(v / 1e6).toFixed(2)}M`;
@@ -26,30 +24,25 @@ export function num(v: number, compact = true) {
   return Math.round(v).toLocaleString('en-US');
 }
 
-export function pct(v: number, decimals = 1, signed = true) {
+export function pct(v: number | null | undefined, decimals = 1, signed = true) {
+  if (v === null || v === undefined || !Number.isFinite(v)) return '—';
   const s = (v * 100).toFixed(decimals);
   return `${signed && v > 0 ? '+' : ''}${s}%`;
 }
 
-/** Very small token prices need significant-digit formatting. */
-export function price(v: number) {
-  const usdV = v * SOL_USD;
+/** USD token price with subscript-zero notation for tiny values. */
+export function price(usdV: number | null | undefined) {
+  if (usdV === null || usdV === undefined || !Number.isFinite(usdV)) return '—';
   if (usdV >= 1) return `$${usdV.toFixed(4)}`;
   if (usdV <= 0) return '$0';
   const zeros = Math.floor(-Math.log10(usdV));
-  if (zeros >= 4) {
-    const sig = (usdV * 10 ** (zeros + 3)).toFixed(0);
-    return `$0.0${subscript(zeros)}${sig}`;
-  }
+  if (zeros >= 4) return `$0.0${subscript(zeros)}${(usdV * 10 ** (zeros + 3)).toFixed(0)}`;
   return `$${usdV.toFixed(zeros + 4)}`;
 }
 
 function subscript(n: number) {
   const map = '₀₁₂₃₄₅₆₇₈₉';
-  return String(n)
-    .split('')
-    .map((c) => map[+c])
-    .join('');
+  return String(n).split('').map((c) => map[+c]).join('');
 }
 
 /** Elapsed duration, e.g. "1h 47m" (never a countdown to the battle end). */
@@ -58,9 +51,7 @@ export function duration(ms: number, withSeconds = false) {
   const h = Math.floor(totalS / 3600);
   const m = Math.floor((totalS % 3600) / 60);
   const s = totalS % 60;
-  if (withSeconds) {
-    return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s` : `${m}m ${String(s).padStart(2, '0')}s`;
-  }
+  if (withSeconds) return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s` : `${m}m ${String(s).padStart(2, '0')}s`;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
@@ -82,6 +73,7 @@ export function ago(ms: number) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export const short = (addr: string, n = 4) => `${addr.slice(0, n)}…${addr.slice(-n)}`;
-
+export const short = (addr: string, n = 4) => (addr.length > n * 2 + 1 ? `${addr.slice(0, n)}…${addr.slice(-n)}` : addr);
 export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+export const solscanTx = (sig: string) => `https://solscan.io/tx/${sig}`;
+export const solscanAccount = (a: string) => `https://solscan.io/account/${a}`;

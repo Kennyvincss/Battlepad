@@ -1,10 +1,10 @@
 import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
-import type { Battle, BattleRecordEntry, Token } from '../data/types';
+import type { Battle, Token } from '../data/types';
 import { useData } from '../data/DataContext';
-import { ago, duration, num, pct, quoteToUsd, usd } from '../lib/format';
-import { BATTLE_TYPES } from '../lib/rules';
-import { roundName } from '../sim/engine';
+import { duration, num, pct, usd } from '../lib/format';
+import { BATTLE_TYPES } from '../lib/shared';
+import { roundName } from '../live/store';
 import { sideView, battleIntegrity, combinedVolumeUsd } from '../lib/view';
 import { Flash, StatusPill, StreakBadge, TokenLogo, sideColor } from './ui';
 
@@ -86,59 +86,40 @@ export function BattleCard({ battle }: { battle: Battle }) {
   const isLive = battle.status === 'live';
   const isEnded = battle.status === 'ended';
   const upcoming = !isLive && !isEnded;
-  const leader = isEnded ? e.tokens[battle.winner!] : A.position === 1 ? A.token : B.token;
-  const chg = (c: number) => <span className={c >= 0 ? 'up' : 'down'}>{pct(c)}</span>;
+  const leader = isEnded ? e.tokens[battle.winner!] : A.score !== null ? (A.position === 1 ? A.token : B.token) : undefined;
+  const chg = (c: number | null) => (c === null ? <span className="muted">—</span> : <span className={c >= 0 ? 'up' : 'down'}>{pct(c)}</span>);
   const rules = battle.rules;
   const t = e.tournamentOf(battle);
   const m = e.matchOf(battle);
   const tour = t ? <span className="pill pill-gold" title={t.name}>🏆 {m ? ({ Quarterfinal: 'QF', Semifinal: 'SF', Final: 'FINAL' } as Record<string, string>)[roundName(t, m.round)] ?? roundName(t, m.round) : t.name}</span> : null;
+  const sp = rules.rewardSplit;
 
   if (upcoming) {
     return (
       <CardShell
-        to={`/battle/${battle.id}`}
+        to={battle.status === 'pending' ? `/challenge/${battle.id}` : `/battle/${battle.id}`}
         status={<span className="row" style={{ gap: 6, minWidth: 0 }}><StatusPill battle={battle} elapsed={0} />{tour}</span>}
         time={<>Starts in {duration(Math.max(0, battle.scheduledStart - e.now))}</>}
-        a={{ token: A.token, mcap: usd(A.mcapUsd), sub: <span className="muted">{num(A.holders)} holders</span> }}
-        b={{ token: B.token, mcap: usd(B.mcapUsd), sub: <span className="muted">{num(B.holders)} holders</span> }}
+        a={{ token: A.token, mcap: usd(A.mcapUsd), sub: chg(A.change) }}
+        b={{ token: B.token, mcap: usd(B.mcapUsd), sub: chg(B.change) }}
         mid={<div className="bcard-pills"><span className="pill">{BATTLE_TYPES[rules.type].label}</span><span className="pill">Min {Math.round(rules.randomEnd.minDurationMs / 3_600_000)}h · random end</span></div>}
-        foot1={[<span className="muted">Reward pool</span>, <span className="mono gold">{usd(quoteToUsd(rules.rewardPoolQuote))}</span>]}
-        foot2={[<span>Rules locked at start</span>, <span className="mono">50 / 25 / 25 split</span>]}
+        foot1={[<span className="muted">24h change shown</span>, <span className="mono">{usd(A.liquidityUsd)} · {usd(B.liquidityUsd)} liq.</span>]}
+        foot2={[<span>Rules locked at start</span>, <span className="mono">{Math.round(sp.winnerLiquidity * 100)} / {Math.round(sp.holderRewards * 100)} / {Math.round(sp.platform * 100)} split</span>]}
       />
     );
   }
+  const hasScore = A.score !== null && B.score !== null;
   return (
     <CardShell
       to={`/battle/${battle.id}`}
       live={isLive}
       status={<span className="row" style={{ gap: 6, minWidth: 0 }}><StatusPill battle={battle} elapsed={elapsed} compact />{tour}</span>}
-      time={isLive ? <>⏱ {duration(elapsed)}</> : <>Lasted {duration(battle.final!.durationMs)}</>}
+      time={isLive ? <>⏱ {duration(elapsed)}</> : <>Lasted {duration(battle.final?.durationMs ?? 0)}</>}
       a={{ token: A.token, mcap: usd(A.mcapUsd), sub: chg(A.change) }}
       b={{ token: B.token, mcap: usd(B.mcapUsd), sub: chg(B.change) }}
-      mid={<ScoreTug a={A.score} b={B.score} hueA={A.token.hue} hueB={B.token.hue} />}
-      foot1={[<Who label={isEnded ? 'Winner' : 'Leading'} token={leader} trophy={isEnded} />, <span className="mono muted">{num(battle.traders.size)} traders · {usd(combinedVolumeUsd(battle))}</span>]}
-      foot2={[<span className="mono">👥 {num(A.holders)} · {num(B.holders)}</span>, <span>{isLive && <>👁 {num(battle.spectators)} · </>}🛡 {battleIntegrity(battle)}%</span>]}
-    />
-  );
-}
-
-/** Same-size card for archived (pre-session) results, which only have a record entry. */
-export function ResultCard({ entry }: { entry: BattleRecordEntry }) {
-  const e = useData();
-  const w = e.tokens[entry.tokenId];
-  const l = e.tokens[entry.opponentId];
-  const mw = e.markets[w.id];
-  const ml = e.markets[l.id];
-  return (
-    <CardShell
-      to={`/token/${w.id}`}
-      status={<span className="pill pill-ended">Ended</span>}
-      time={<>{ago(e.now - entry.endedAt)}</>}
-      a={{ token: w, mcap: usd(quoteToUsd(mw.price * w.totalSupply)), sub: <span className="gold">🏆 Winner</span> }}
-      b={{ token: l, mcap: usd(quoteToUsd(ml.price * l.totalSupply)), sub: <span className="muted">Still trading</span> }}
-      mid={<ScoreTug a={entry.scoreFor} b={entry.scoreAgainst} hueA={w.hue} hueB={l.hue} />}
-      foot1={[<Who label="Winner" token={w} trophy />, <span className="mono muted">Lasted {duration(entry.durationMs)}</span>]}
-      foot2={[<span>MC shown is current</span>, <span>Archived result</span>]}
+      mid={hasScore ? <ScoreTug a={A.score!} b={B.score!} hueA={A.token.hue} hueB={B.token.hue} /> : <div className="dim center" style={{ fontSize: 12 }}>First score sample within a minute of start</div>}
+      foot1={[leader ? <Who label={isEnded ? 'Winner' : 'Leading'} token={leader} trophy={isEnded} /> : <span className="muted">No leader yet</span>, <span className="mono muted">{num(battle.traders)} traders · {usd(combinedVolumeUsd(battle))}</span>]}
+      foot2={[<span className="mono">👥 {num(A.holders)} · {num(B.holders)}</span>, <span>🛡 {battleIntegrity(battle)}%</span>]}
     />
   );
 }

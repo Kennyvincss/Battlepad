@@ -1,10 +1,9 @@
 import { Link, useParams } from 'react-router-dom';
 import { useData } from '../data/DataContext';
-import { ago, duration, num, price as fmtPrice, quoteToUsd, short, usd } from '../lib/format';
-import { liquidityQuote } from '../lib/amm';
+import { ago, duration, num, pct, price as fmtPrice, short, usd } from '../lib/format';
 import { TradePanel } from '../components/TradePanel';
 import { BattleCard } from '../components/BattleCard';
-import { SimPill, StreakBadge, TokenLogo, sideStyle } from '../components/ui';
+import { SourceTag, StreakBadge, TokenLogo, sideStyle } from '../components/ui';
 
 export function BattleRecord({ tokenId }: { tokenId: string }) {
   const e = useData();
@@ -22,7 +21,7 @@ export function BattleRecord({ tokenId }: { tokenId: string }) {
             <div className="display" style={{ fontSize: 26, fontWeight: 700 }}>${t.ticker}</div>
           </div>
         </div>
-        <SimPill />
+        <SourceTag text="Live" />
       </div>
       <div className="record-big">
         <div><span className="record-n up">{r.wins}</span><span className="record-l">Wins</span></div>
@@ -68,13 +67,13 @@ export function TokenPage() {
   const { id } = useParams();
   const e = useData();
   const t = id ? e.tokens[id] : undefined;
-  if (!t) return <div className="page"><div className="panel empty">Token not found.</div></div>;
+  if (!t) return <div className="page"><div className="panel empty">{e.ready ? 'Token not listed on BATTLE.' : 'Loading…'}</div></div>;
   const m = e.markets[t.id];
-  const creator = e.creators[t.creatorId];
   const battle = e.battleForToken(t.id);
   const active = battle && (battle.status === 'live' || battle.status === 'scheduled' || battle.status === 'pending') ? battle : undefined;
-  const pos = e.wallet.positions[t.id];
+  const held = e.wallet.tokens[t.id]?.amount ?? 0;
   const r = e.recordFor(t.id);
+  const ext = (href?: string, label?: string) => href ? <a className="link" href={href} target="_blank" rel="noopener noreferrer">{label} ↗</a> : null;
   return (
     <div className="page">
       <div className="token-hero panel" style={sideStyle(t.hue)}>
@@ -86,29 +85,30 @@ export function TokenPage() {
             <StreakBadge streak={r.streak} size="lg" />
             {active?.status === 'live' && <Link to={`/battle/${active.id}`} className="pill pill-live">In battle</Link>}
           </div>
-          <div className="muted" style={{ fontSize: 15, marginTop: 4 }}>{t.name} · by <Link className="link" to={`/creator/${creator.id}`}>{creator.name}</Link></div>
-          <p style={{ color: 'var(--text-2)', maxWidth: 640, margin: '10px 0 0' }}>{t.description}</p>
+          <div className="muted" style={{ fontSize: 15, marginTop: 4 }}>{t.name} · listed by <Link className="link mono" to={`/creator/${t.listedBy}`}>{short(t.listedBy)}</Link></div>
+          {t.description && <p style={{ color: 'var(--text-2)', maxWidth: 640, margin: '10px 0 0' }}>{t.description}</p>}
           <div className="row wrap" style={{ gap: 14, marginTop: 10, fontSize: 12 }}>
-            <span className="hash">Mint {short(t.mint, 6)}</span>
-            {t.socials.website && <a className="link" href={t.socials.website} onClick={(ev) => ev.preventDefault()}>Website</a>}
-            {t.socials.x && <a className="link" href={t.socials.x} onClick={(ev) => ev.preventDefault()}>X</a>}
-            {t.socials.telegram && <a className="link" href={t.socials.telegram} onClick={(ev) => ev.preventDefault()}>Telegram</a>}
+            <a className="hash link" href={`https://solscan.io/token/${t.mint}`} target="_blank" rel="noopener noreferrer">Mint {short(t.mint, 6)} ↗</a>
+            {ext(m?.pairUrl, 'DexScreener')}
+            {ext(t.socials.website, 'Website')}
+            {ext(t.socials.x, 'X')}
+            {ext(t.socials.telegram, 'Telegram')}
           </div>
         </div>
         <div className="col" style={{ gap: 8, alignItems: 'flex-end' }}>
           <Link to={`/create-battle?opponent=${t.id}`} className="btn btn-battle">⚔️ Challenge ${t.ticker}</Link>
-          <SimPill />
+          <SourceTag text="DexScreener · live" />
         </div>
       </div>
 
       <div className="grid grid-4" style={{ marginTop: 14 }}>
         {[
-          ['Price', fmtPrice(m.price)],
-          ['Market cap', usd(quoteToUsd(m.price * t.totalSupply))],
-          ['Liquidity', usd(quoteToUsd(liquidityQuote(m)))],
-          ['Holders', num(m.holders, false)],
-        ].map(([l, v]) => (
-          <div key={l} className="panel panel-pad stat"><span className="stat-l">{l}</span><span className="stat-v">{v}</span></div>
+          ['Price', fmtPrice(m?.priceUsd), m?.change24 != null ? `${pct(m.change24)} 24h` : ''],
+          ['Market cap', usd(m?.mcapUsd), ''],
+          ['Liquidity', usd(m?.liquidityUsd), ''],
+          ['Holders', num(e.holdersOf(t.id), false), e.holdersOf(t.id) === null ? 'after first battle' : 'at last battle sample'],
+        ].map(([l, v, sub]) => (
+          <div key={l} className="panel panel-pad stat"><span className="stat-l">{l}</span><span className="stat-v">{v}</span>{sub && <span className="dim" style={{ fontSize: 11.5 }}>{sub}</span>}</div>
         ))}
       </div>
 
@@ -124,11 +124,11 @@ export function TokenPage() {
         </div>
         <aside className="battle-side">
           <TradePanel tokens={[t]} battle={active?.status === 'live' ? active : undefined} />
-          {pos && pos.amount > 0 && e.wallet.connected && (
+          {held > 0 && (
             <div className="panel panel-pad">
               <div className="label">Your position</div>
-              <div className="stat-v" style={{ marginTop: 4 }}>{usd(quoteToUsd(pos.amount * m.price), { compact: false })}</div>
-              <div className="muted mono" style={{ fontSize: 12 }}>{num(pos.amount)} {t.ticker} · cost {usd(quoteToUsd(pos.costQuote), { compact: false })}</div>
+              <div className="stat-v" style={{ marginTop: 4 }}>{m ? usd(held * m.priceUsd, { compact: false }) : '—'}</div>
+              <div className="muted mono" style={{ fontSize: 12 }}>{num(held)} {t.ticker}</div>
             </div>
           )}
           <div className="callout callout-info" style={{ fontSize: 12.5 }}>

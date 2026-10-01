@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
-import type { Battle } from '../data/types';
+import type { Battle, BattleDetail } from '../data/types';
 import { useData } from '../data/DataContext';
-import { duration, pct, quoteToUsd, usd } from '../lib/format';
-import { SimPill, TokenLogo, sideColor, sideStyle } from './ui';
+import { duration, pct, usd } from '../lib/format';
+import { TokenLogo, sideColor, sideStyle } from './ui';
 import { TREASURY_COLORS } from './Treasury';
 import { ShareCard } from './ShareCard';
 
@@ -59,7 +59,7 @@ export function ResultReveal({ battle, onClose }: { battle: Battle; onClose: () 
   );
 }
 
-export function ResultPanel({ battle }: { battle: Battle }) {
+export function ResultPanel({ battle, detail }: { battle: Battle; detail?: BattleDetail }) {
   const e = useData();
   const f = battle.final!;
   const ta = e.tokens[battle.a.tokenId];
@@ -67,14 +67,15 @@ export function ResultPanel({ battle }: { battle: Battle }) {
   const w = e.tokens[battle.winner!];
   const rows: { k: string; a: string; b: string; better?: 'a' | 'b' }[] = [
     { k: 'Final Battle Score', a: f.scoreA.total.toFixed(1), b: f.scoreB.total.toFixed(1), better: f.scoreA.total >= f.scoreB.total ? 'a' : 'b' },
-    { k: 'Final market cap', a: usd(quoteToUsd(f.marketCapA)), b: usd(quoteToUsd(f.marketCapB)), better: f.marketCapA >= f.marketCapB ? 'a' : 'b' },
+    { k: 'Final market cap', a: usd(f.marketCapA), b: usd(f.marketCapB), better: f.marketCapA >= f.marketCapB ? 'a' : 'b' },
     { k: 'Price performance', a: pct(f.returnA), b: pct(f.returnB), better: f.returnA >= f.returnB ? 'a' : 'b' },
     { k: 'Time-weighted perf.', a: pct(Math.exp(f.scoreA.inputs.twReturn) - 1), b: pct(Math.exp(f.scoreB.inputs.twReturn) - 1), better: f.scoreA.inputs.twReturn >= f.scoreB.inputs.twReturn ? 'a' : 'b' },
-    { k: 'Holder growth', a: pct(f.holderGrowthA), b: pct(f.holderGrowthB), better: f.holderGrowthA >= f.holderGrowthB ? 'a' : 'b' },
+    { k: 'Holder growth', a: pct(f.holderGrowthA), b: pct(f.holderGrowthB), better: (f.holderGrowthA ?? 0) >= (f.holderGrowthB ?? 0) ? 'a' : 'b' },
     { k: 'Integrity (organic vol.)', a: `${f.integrityA}%`, b: `${f.integrityB}%`, better: f.integrityA >= f.integrityB ? 'a' : 'b' },
   ];
   const t = e.tournamentOf(battle);
-  const bal = e.treasuryBalance(battle);
+  const feesSol = (detail?.swaps ?? []).filter((x) => x.verified).reduce((s, x) => s + x.feeSol, 0);
+  const bal = e.solUsd !== null ? feesSol * e.solUsd : 0;
   const sp = battle.rules.rewardSplit;
   const payouts: [string, number, string][] = [
     [`Winner liquidity support → $${w.ticker}`, sp.winnerLiquidity, TREASURY_COLORS.winner],
@@ -86,7 +87,7 @@ export function ResultPanel({ battle }: { battle: Battle }) {
     <section className="result panel" style={{ '--h': w.hue } as React.CSSProperties}>
       <div className="result-glow" />
       <div className="result-head">
-        <div className="label" style={{ color: 'var(--gold)' }}>⚔️ Battle over · <SimPill /></div>
+        <div className="label" style={{ color: 'var(--gold)' }}>⚔️ Battle over · </div>
         <h2 className="result-title"><TokenLogo token={w} size={44} /> <span style={{ color: sideColor(w.hue, 68) }}>{w.ticker}</span> HAS WON 🏆</h2>
         <div className="muted">
           Lasted <b className="mono">{duration(f.durationMs)}</b> · {f.hitCap ? 'reached the published safety cap' : <>ended by random check #{f.endCheck?.index} (<span className="mono">{f.endCheck?.value.toFixed(5)} &lt; {f.endCheck?.threshold.toFixed(5)}</span>)</>}
@@ -110,10 +111,10 @@ export function ResultPanel({ battle }: { battle: Battle }) {
         </div>
         <div className="col" style={{ gap: 14 }}>
           <div>
-            <div className="label" style={{ marginBottom: 8 }}>Rewards · treasury of {usd(quoteToUsd(bal), { compact: false, decimals: 0 })} paid out</div>
+            <div className="label" style={{ marginBottom: 8 }}>Rewards · treasury of {usd(bal, { compact: false })} allocated</div>
             <div className="tre-split">
               {payouts.map(([k, v, c]) => (
-                <div key={k} className="tre-split-row"><span className="split-dot" style={{ background: c }} /><span className="grow">{k}</span><span className="mono" style={{ fontWeight: 700 }}>{usd(quoteToUsd(bal * v), { compact: false, decimals: 0 })}</span></div>
+                <div key={k} className="tre-split-row"><span className="split-dot" style={{ background: c }} /><span className="grow">{k}</span><span className="mono" style={{ fontWeight: 700 }}>{usd(bal * v, { compact: false })}</span></div>
               ))}
             </div>
           </div>
@@ -133,7 +134,7 @@ export function ResultPanel({ battle }: { battle: Battle }) {
           {t && <Link to={`/tournament/${t.id}`} className="btn btn-tourney">🏆 {t.status === 'completed' ? `${t.name} results` : `Continue ${t.name}`}</Link>}
           {nextOpp && <Link to={`/create-battle?token=${w.id}&opponent=${nextOpp.id}`} className="btn btn-battle">⚔️ Next challenge</Link>}
           <Link to="/tournaments" className="btn">Tournaments</Link>
-          <Link to={`/token/${w.id}`} className="btn">{w.logo} {w.ticker} battle record</Link>
+          <Link to={`/token/${w.id}`} className="btn">{w.ticker} battle record</Link>
         </div>
       </div>
     </section>

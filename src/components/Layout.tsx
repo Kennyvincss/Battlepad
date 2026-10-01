@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useData } from '../data/DataContext';
 import { useUi } from './AppState';
 import { ago, short, sol } from '../lib/format';
-import { TokenLogo } from './ui';
 
 /** `sec` items fold into the "More" menu on mid-size screens so the bar never crowds. */
 const NAV = [
   { to: '/', label: 'Battles', icon: '⚔️', end: true },
   { to: '/tournaments', label: 'Tournaments', icon: '🏆' },
-  { to: '/launch', label: 'Launch', icon: '🚀' },
+  { to: '/launch', label: 'List token', icon: '🚀' },
   { to: '/discover', label: 'Discover', icon: '🧭' },
   { to: '/leaderboard', label: 'Leaderboard', icon: '📊' },
   { to: '/creators', label: 'Creators', icon: '🛠', sec: true },
@@ -23,7 +22,7 @@ export function Layout() {
   return (
     <div className="app-shell">
       <TopBar />
-      <SimRibbon />
+      <StatusBanner />
       <Outlet />
       <Footer />
       <MobileTabBar />
@@ -59,8 +58,8 @@ function TopBar() {
           {data.wallet.connected ? (
             <Link to="/portfolio" className="btn btn-sm wallet-btn">
               <span className="wallet-dot" />
-              <span className="mono">{sol(data.wallet.quoteBalance, 2)}</span>
-              <span className="muted mono hide-mobile">{short(data.wallet.address)}</span>
+              <span className="mono">{data.wallet.solBalance !== null ? sol(data.wallet.solBalance, 2) : '…'}</span>
+              <span className="muted mono hide-mobile">{short(data.wallet.address ?? '')}</span>
             </Link>
           ) : (
             <button className="btn btn-primary btn-sm" onClick={ui.openWallet}>Connect Wallet</button>
@@ -72,65 +71,54 @@ function TopBar() {
   );
 }
 
-function SimRibbon() {
+function StatusBanner() {
   const data = useData();
-  return (
-    <div className="sim-ribbon">
-      <span>◇ <b>Prototype</b> — all markets, wallets, trades and beacon values are <b>simulated</b> in your browser. Nothing here is real on-chain data.</span>
-      <span className="row" style={{ gap: 6 }}>
-        <span className="muted">Sim speed</span>
-        <span className="seg">
-          {[1, 10, 60].map((s) => (
-            <button key={s} className={data.speed === s ? 'active' : ''} onClick={() => data.setSpeed(s)}>{s}×</button>
-          ))}
-        </span>
-      </span>
-    </div>
-  );
+  if (!data.configured) {
+    return <div className="status-banner warn">⚠️ The battle backend isn't connected yet. Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> to go live — see README.</div>;
+  }
+  if (data.error) return <div className="status-banner bad">⚠️ {data.error}</div>;
+  if (data.marketError) return <div className="status-banner warn">⚠️ {data.marketError}. Retrying every 20 seconds.</div>;
+  return null;
 }
 
 function Notifications() {
   const data = useData();
   const [open, setOpen] = useState(false);
+  const [seen, setSeen] = useState(() => { try { return Number(localStorage.getItem('battle.notifSeen') ?? 0); } catch { return 0; } });
   const ref = useRef<HTMLDivElement>(null);
-  const nav = useNavigate();
-  const unread = data.notifications.filter((n) => !n.read).length;
+  const list = data.notifications;
+  const unread = list.filter((n) => n.t > seen).length;
   useEffect(() => {
     if (!open) return;
     const on = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
     document.addEventListener('mousedown', on);
     return () => document.removeEventListener('mousedown', on);
   }, [open]);
+  const toggle = () => {
+    setOpen(!open);
+    if (!open) { const t = Date.now(); setSeen(t); try { localStorage.setItem('battle.notifSeen', String(t)); } catch { /* ignore */ } }
+  };
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button className="btn icon-btn" aria-label="Notifications" onClick={() => { setOpen(!open); if (!open) setTimeout(() => data.markNotificationsRead(), 1500); }}>
+      <button className="btn icon-btn" aria-label="Notifications" onClick={toggle}>
         🔔{unread > 0 && <span className="badge-count">{unread}</span>}
       </button>
       {open && (
         <div className="panel dropdown">
-          <div className="panel-head"><span className="panel-title">Notifications</span><span className="pill pill-sim">◇ Simulated</span></div>
-          {data.notifications.length === 0 && <div className="empty">Nothing yet.</div>}
-          {data.notifications.map((n) => {
-            const ch = n.challengeId ? data.challenges.find((c) => c.id === n.challengeId) : undefined;
-            return (
-              <div key={n.id} className={`notif ${n.read ? '' : 'unread'}`}>
-                {ch ? <TokenLogo token={data.tokens[ch.fromTokenId]} size={34} /> : <span style={{ fontSize: 20, width: 34, textAlign: 'center' }}>{n.kind === 'reward' ? '🏆' : n.kind === 'battle-end' ? '🏁' : '⚔️'}</span>}
-                <div className="grow">
-                  <div style={{ fontWeight: 800, fontSize: 12.5, letterSpacing: '0.04em' }}>{n.title}</div>
-                  <div className="muted" style={{ fontSize: 12.5 }}>{n.body}</div>
-                  {ch?.message && <div style={{ fontSize: 12, marginTop: 4, fontStyle: 'italic', color: 'var(--text-2)' }}>“{ch.message}”</div>}
-                  {ch && ch.status === 'pending' && (
-                    <div className="row" style={{ marginTop: 8 }}>
-                      <button className="btn btn-battle btn-sm" onClick={() => { setOpen(false); nav(`/challenge/${ch.id}`); }}>Review challenge</button>
-                    </div>
-                  )}
-                  {ch && ch.status !== 'pending' && <div className="label" style={{ marginTop: 6 }}>{ch.status}</div>}
-                  {n.link && !ch && <Link to={n.link} className="link" style={{ fontSize: 12 }} onClick={() => setOpen(false)}>Open →</Link>}
-                  <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>{ago(data.now - n.t)}</div>
-                </div>
+          <div className="panel-head"><span className="panel-title">Notifications</span></div>
+          {!data.wallet.connected && <div className="empty">Connect a wallet to get challenges and updates for tokens you listed.</div>}
+          {data.wallet.connected && list.length === 0 && <div className="empty">Nothing yet. Challenges to your tokens and your battle results show up here.</div>}
+          {list.map((n) => (
+            <Link key={n.id} to={n.link ?? '/'} className="notif" onClick={() => setOpen(false)}>
+              <span style={{ fontSize: 20, width: 34, textAlign: 'center' }}>{n.kind === 'challenge' ? '⚔️' : n.kind === 'battle-end' ? '🏁' : '🔴'}</span>
+              <div className="grow">
+                <div style={{ fontWeight: 800, fontSize: 12.5, letterSpacing: '0.04em' }}>{n.title}</div>
+                <div className="muted" style={{ fontSize: 12.5 }}>{n.body}</div>
+                {n.kind === 'challenge' && <span className="btn btn-battle btn-sm" style={{ marginTop: 8 }}>Review challenge</span>}
+                <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>{ago(data.now - n.t)}</div>
               </div>
-            );
-          })}
+            </Link>
+          ))}
         </div>
       )}
     </div>
@@ -204,7 +192,7 @@ function Footer() {
         <p>
           BATTLE is a token launchpad with a competitive layer. You trade real tokens; you are not betting on an outcome. Battle results do not
           guarantee future price performance, and losing tokens keep trading normally. Battle rules, random-end parameters and reward splits are
-          locked before a battle starts. This prototype uses simulated data.
+          locked before a battle starts. Market data: DexScreener and GeckoTerminal. Swaps: Jupiter. Randomness: drand.
         </p>
         <div className="row wrap" style={{ gap: 16 }}>
           <Link to="/rules" className="link">How battles work</Link>

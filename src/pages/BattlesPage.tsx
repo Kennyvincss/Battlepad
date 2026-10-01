@@ -2,11 +2,11 @@ import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import type { Battle } from '../data/types';
 import { useData } from '../data/DataContext';
-import { num, quoteToUsd, usd } from '../lib/format';
-import { roundName } from '../sim/engine';
+import { num, usd } from '../lib/format';
+import { roundName } from '../live/store';
 import { combinedVolumeUsd } from '../lib/view';
-import { BattleCard, ResultCard } from '../components/BattleCard';
-import { SimPill, StreakBadge, TokenLogo, sideStyle } from '../components/ui';
+import { BattleCard } from '../components/BattleCard';
+import { SourceTag, StreakBadge, TokenLogo, sideStyle } from '../components/ui';
 
 type Filter = 'all' | 'live' | 'sudden' | 'upcoming' | 'ended';
 type Sort = 'traders' | 'close' | 'longest' | 'newest';
@@ -26,10 +26,7 @@ export function BattlesPage() {
   const sudden = live.filter((b) => e.elapsed(b) >= b.rules.randomEnd.minDurationMs);
   const upcoming = e.upcomingBattles();
   const ended = e.endedBattles();
-  const archived = e.history
-    .filter((h) => h.won && !e.battles.some((b) => b.id === h.battleId))
-    .sort((a, b) => b.endedAt - a.endedAt);
-  const totalTraders = live.reduce((s, b) => s + b.traders.size, 0);
+  const totalTraders = live.reduce((s, b) => s + b.traders, 0);
   const totalVol = live.reduce((s, b) => s + combinedVolumeUsd(b), 0);
 
   const matches = (b: Battle) => {
@@ -38,8 +35,8 @@ export function BattlesPage() {
     return [b.a.tokenId, b.b.tokenId].some((id) => e.tokens[id].ticker.toLowerCase().includes(s) || e.tokens[id].name.toLowerCase().includes(s));
   };
   const sorter = (x: Battle, y: Battle) => {
-    if (sort === 'traders') return y.traders.size - x.traders.size;
-    if (sort === 'close') return Math.abs(x.a.score.total - x.b.score.total) - Math.abs(y.a.score.total - y.b.score.total);
+    if (sort === 'traders') return y.traders - x.traders;
+    if (sort === 'close') return Math.abs((x.a.score?.total ?? 0) - (x.b.score?.total ?? 0)) - Math.abs((y.a.score?.total ?? 0) - (y.b.score?.total ?? 0));
     if (sort === 'longest') return e.elapsed(y) - e.elapsed(x);
     return (y.startedAt ?? y.scheduledStart) - (x.startedAt ?? x.scheduledStart);
   };
@@ -52,8 +49,7 @@ export function BattlesPage() {
   if (filter === 'upcoming') battles = upcoming;
   if (filter === 'ended') battles = ended;
   battles = battles.filter(matches);
-  const showArchived = (filter === 'ended' || filter === 'all') && !q;
-  const total = battles.length + (showArchived ? archived.length : 0);
+  const total = battles.length;
 
   const streaks = Object.values(e.tokens)
     .map((t) => ({ t, r: e.recordFor(t.id) }))
@@ -61,11 +57,11 @@ export function BattlesPage() {
     .sort((a, b) => b.r.streak - a.r.streak || b.r.wins - a.r.wins);
 
   const tabs: [Filter, string, number][] = [
-    ['all', 'All', live.length + upcoming.length + ended.length + archived.length],
+    ['all', 'All', live.length + upcoming.length + ended.length],
     ['live', 'Live', live.length],
     ['sudden', '⚠ Can end any time', sudden.length],
     ['upcoming', 'Upcoming', upcoming.length],
-    ['ended', 'Results', ended.length + archived.length],
+    ['ended', 'Results', ended.length],
   ];
 
   return (
@@ -80,7 +76,7 @@ export function BattlesPage() {
           <div><b className="mono warn">{sudden.length}</b><span className="muted">can end any time</span></div>
           <div><b className="mono">{num(totalTraders, false)}</b><span className="muted">traders</span></div>
           <div><b className="mono">{usd(totalVol)}</b><span className="muted">battle volume</span></div>
-          <SimPill />
+          <SourceTag text="Live · Solana" />
         </div>
       </div>
 
@@ -93,7 +89,7 @@ export function BattlesPage() {
               <Link key={t.id} to={`/tournament/${t.id}`} className="tourney-chip" style={{ '--h': t.hue } as React.CSSProperties}>
                 <span className="pill pill-live">Live</span>
                 <b>🏆 {t.name}</b>
-                <span className="muted">{roundName(t, r)}s · {n} live · {usd(quoteToUsd(t.prizePoolQuote))} prize pool</span>
+                <span className="muted">{roundName(t, r)}s · {n} live{t.prizeNote ? ` · ${t.prizeNote}` : ''}</span>
                 <span className="link">View bracket →</span>
               </Link>
             );
@@ -134,15 +130,25 @@ export function BattlesPage() {
 
       <div className="board">
         {battles.slice(0, shown).map((b) => <BattleCard key={b.id} battle={b} />)}
-        {showArchived && archived.slice(0, Math.max(0, shown - battles.length)).map((h) => <ResultCard key={h.battleId} entry={h} />)}
       </div>
-      {total === 0 && <div className="panel empty">No battles match. Try another filter.</div>}
+      {total === 0 && (
+        <div className="panel empty" style={{ padding: 40 }}>
+          {e.battles.length === 0 ? (
+            <>
+              <div style={{ fontSize: 36 }}>⚔️</div>
+              <h3 className="display" style={{ fontSize: 22 }}>{e.ready ? 'No battles yet' : 'Loading live battles…'}</h3>
+              {e.ready && <p className="muted">List your token and challenge another one to start the first battle.</p>}
+              {e.ready && <div className="row" style={{ gap: 8, justifyContent: 'center' }}><Link to="/launch" className="btn btn-primary">List a token</Link><Link to="/create-battle" className="btn btn-battle">⚔️ Challenge</Link></div>}
+            </>
+          ) : 'No battles match. Try another filter.'}
+        </div>
+      )}
       {total > shown && (
         <div className="center" style={{ marginTop: 18 }}>
           <button className="btn" onClick={() => setShown(shown + PAGE)}>Show more · {total - shown} left</button>
         </div>
       )}
-      <p className="dim" style={{ fontSize: 12, marginTop: 14 }}>Archived results are simulated seed data. Market caps on archived cards are current values.</p>
+      <p className="dim" style={{ fontSize: 12, marginTop: 14 }}>Market data: DexScreener (prices, market caps, liquidity) and GeckoTerminal (trades). Scores are computed every minute by the battle keeper.</p>
     </div>
   );
 }

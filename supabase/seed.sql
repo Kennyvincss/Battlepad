@@ -1,0 +1,3 @@
+-- Optional: nothing is seeded. Battles only exist when creators list real
+-- tokens and challenge each other, or when an admin creates a tournament
+-- (see README → "Create a tournament").

@@ -1,38 +1,34 @@
 import { createContext, useContext, useEffect, useSyncExternalStore, type ReactNode } from 'react';
-import { SimEngine } from '../sim/engine';
-import type { EngineEvent } from './provider';
+import { LiveStore, type StoreEvent } from '../live/store';
 
-/**
- * The prototype binds the UI to `SimEngine`. To go live, construct a provider
- * backed by chain data here instead — components only use `useData()`.
- */
-const engine = new SimEngine();
-engine.start();
-if (import.meta.env.DEV) (window as unknown as { battle: SimEngine }).battle = engine;
-
-const Ctx = createContext<SimEngine>(engine);
+/** One live store for the app: Supabase (battle state), DexScreener (markets), Jupiter (swaps). */
+const store = new LiveStore();
+const Ctx = createContext<LiveStore>(store);
 
 export function DataProvider({ children }: { children: ReactNode }) {
-  return <Ctx.Provider value={engine}>{children}</Ctx.Provider>;
+  return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }
 
-/** Subscribe to the data provider; re-renders on every state change (≈2.5Hz). */
+/** Subscribe to the store; re-renders on every change. */
 export function useData() {
   const e = useContext(Ctx);
-  useSyncExternalStore(
-    (cb) => e.subscribe(cb),
-    () => e.version,
-  );
+  useSyncExternalStore((cb) => e.subscribe(cb), () => e.version);
   return e;
 }
 
-/** Non-reactive access (for event handlers). */
 export function useEngine() {
   return useContext(Ctx);
 }
 
-export function useEngineEvent(cb: (e: EngineEvent) => void, deps: unknown[] = []) {
+export function useEngineEvent(cb: (e: StoreEvent) => void, deps: unknown[] = []) {
   const e = useContext(Ctx);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => e.onEvent(cb), [e, ...deps]);
+}
+
+/** Load a battle's live detail (snapshots, trades, feed, chat, checks) while mounted. */
+export function useBattleDetail(id: string | undefined) {
+  const e = useData();
+  useEffect(() => (id ? e.watch(id) : undefined), [e, id]);
+  return id ? e.detail(id) : undefined;
 }
