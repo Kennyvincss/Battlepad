@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useData } from '../data/DataContext';
 import { useUi } from '../components/AppState';
 import { num, short, sol, solscanAccount, usd } from '../lib/format';
-import { TokenLogo, sideColor, sideStyle } from '../components/ui';
+import { TokenLogo, sideColor, sideStyle, PnlText } from '../components/ui';
 
 type Stats = { battles: number; trades: number; volume_usd: number; winning_sides: number } | null;
 
@@ -41,8 +41,10 @@ export function PortfolioPage() {
   const tokenValue = listed.reduce((s, p) => s + (p.value ?? 0), 0);
   const solValue = w.solBalance !== null && e.solUsd !== null ? w.solBalance * e.solUsd : null;
   const myTokens = e.myTokens();
+  const pnls = [...new Set(e.ledger.map((x) => x.tokenId))].map((id) => e.pnl(id)?.totalUsd).filter((x): x is number => x != null);
+  const totalPnl = pnls.length ? pnls.reduce((s, x) => s + x, 0) : null;
   const mineSet = new Set(myTokens.map((t) => t.id));
-  const challenges = e.battles.filter((b) => b.status === 'pending' && (mineSet.has(b.a.tokenId) || mineSet.has(b.b.tokenId)));
+  const myBattles = e.battles.filter((b) => b.status !== 'declined' && b.status !== 'cancelled' && (b.createdBy === w.address || mineSet.has(b.a.tokenId) || mineSet.has(b.b.tokenId))).slice(0, 12);
   const armies = Object.entries(e.armies).map(([bid, tid]) => ({ b: e.getBattle(bid), t: e.tokens[tid] })).filter((x) => x.b && x.t);
 
   return (
@@ -52,7 +54,7 @@ export function PortfolioPage() {
         <div className="grow">
           <div className="row wrap" style={{ gap: 10 }}>
             <h1 className="page-title" style={{ fontSize: 36 }}>Your profile</h1>
-            {w.signedIn ? <span className="pill pill-up">Signed in</span> : <button className="btn btn-sm" onClick={() => void ui.requireSignIn()}>Sign in to chat & challenge</button>}
+            {w.signedIn ? <span className="pill pill-up">Signed in</span> : <button className="btn btn-sm" onClick={() => void ui.requireSignIn()}>Sign in to chat & start battles</button>}
           </div>
           <a className="mono muted link" href={solscanAccount(w.address)} target="_blank" rel="noopener noreferrer">{w.provider} · {short(w.address, 6)} ↗</a>
           <div className="row wrap" style={{ gap: 8, marginTop: 10 }}>
@@ -64,7 +66,8 @@ export function PortfolioPage() {
         <div className="col" style={{ alignItems: 'flex-end', gap: 6 }}>
           <div className="label">Portfolio value (listed tokens + SOL)</div>
           <div className="stat-v" style={{ fontSize: 28 }}>{solValue !== null ? usd(tokenValue + solValue) : '…'}</div>
-          <div className="muted mono" style={{ fontSize: 12 }}>{w.solBalance !== null ? sol(w.solBalance) : '…'} + {usd(tokenValue)} in battle tokens</div>
+          <div className="muted mono" style={{ fontSize: 12 }}>{w.solBalance !== null ? sol(w.solBalance) : '…'} + {usd(tokenValue)} in coins</div>
+          {totalPnl !== null && <div className="row" style={{ gap: 6 }}><span className="label">PnL (trades on BATTLE)</span><PnlText usd={totalPnl} size="lg" /></div>}
           <div className="row" style={{ gap: 6 }}>
             <button className="btn btn-sm" onClick={() => void e.refreshBalances()}>Refresh</button>
             <button className="btn btn-sm" onClick={() => void e.disconnectWallet()}>Disconnect</button>
@@ -87,17 +90,18 @@ export function PortfolioPage() {
           <div className="panel table-wrap">
             <div className="panel-head"><span className="panel-title">💼 Current positions</span><span className="dim" style={{ fontSize: 11.5 }}>From your wallet on-chain</span></div>
             <table className="table">
-              <thead><tr><th>Token</th><th className="num">Amount</th><th className="num">Value</th><th>Status</th></tr></thead>
+              <thead><tr><th>Coin</th><th className="num">Amount</th><th className="num">Value</th><th className="num">PnL</th><th>Status</th></tr></thead>
               <tbody>
                 {listed.map(({ mint, t, amount, value, live }) => (
                   <tr key={mint}>
                     <td><Link to={`/token/${mint}`} className="row" style={{ gap: 8 }}><TokenLogo token={t!} size={26} /><b>${t!.ticker}</b></Link></td>
                     <td className="num">{num(amount)}</td>
                     <td className="num">{usd(value, { compact: false })}</td>
+                    <td className="num">{(() => { const p = e.pnl(mint); return p ? <PnlText usd={p.totalUsd} pct={p.pct} /> : <span className="dim" title="Bought outside BATTLE, so the cost is unknown">—</span>; })()}</td>
                     <td>{live ? <Link to={`/battle/${live.id}`} className="army-chip sm" style={sideStyle(t!.hue)}>{t!.ticker} ARMY · live</Link> : <span className="dim">—</span>}</td>
                   </tr>
                 ))}
-                {listed.length === 0 && <tr><td colSpan={4} className="empty">You don't hold any battle tokens. <Link to="/" className="link">Join a battle →</Link></td></tr>}
+                {listed.length === 0 && <tr><td colSpan={5} className="empty">You don't hold any battle tokens. <Link to="/" className="link">Join a battle →</Link></td></tr>}
               </tbody>
             </table>
             {otherCount > 0 && <div className="dim" style={{ fontSize: 12, padding: '0 16px 12px' }}>+ {otherCount} other token{otherCount === 1 ? '' : 's'} in this wallet that aren't listed on BATTLE.</div>}
@@ -131,22 +135,21 @@ export function PortfolioPage() {
               {myTokens.map((t) => (
                 <div key={t.id} className="spread">
                   <Link to={`/token/${t.id}`} className="row" style={{ gap: 8 }}><TokenLogo token={t} size={26} /><b>${t.ticker}</b></Link>
-                  <Link to={`/create-battle?token=${t.id}`} className="btn btn-battle btn-sm">⚔️ Challenge</Link>
+                  <Link to={`/create-battle?token=${t.id}`} className="btn btn-battle btn-sm">⚔️ Battle</Link>
                 </div>
               ))}
             </div>
           </div>
           <div className="panel">
-            <div className="panel-head"><span className="panel-title">📨 Challenges</span></div>
+            <div className="panel-head"><span className="panel-title">⚔️ Battles you started or your coins are in</span></div>
             <div className="panel-pad col" style={{ gap: 10 }}>
-              {challenges.length === 0 && <div className="muted" style={{ fontSize: 13 }}>No open challenges.</div>}
-              {challenges.map((c) => {
-                const incoming = mineSet.has(c.b.tokenId);
+              {myBattles.length === 0 && <div className="muted" style={{ fontSize: 13 }}>None yet. <Link className="link" to="/create-battle">Start a battle →</Link></div>}
+              {myBattles.map((c) => {
                 const a = e.token(c.a.tokenId), b = e.token(c.b.tokenId);
                 return (
-                  <Link key={c.id} to={`/challenge/${c.id}`} className="spread">
-                    <span className="row" style={{ gap: 6 }}>{a && <TokenLogo token={a} size={20} />}${a?.ticker}<span className="dim">→</span>{b && <TokenLogo token={b} size={20} />}${b?.ticker}</span>
-                    <span className={`pill ${incoming ? 'pill-sd' : ''}`}>{incoming ? 'Respond' : 'Sent'}</span>
+                  <Link key={c.id} to={`/battle/${c.id}`} className="spread">
+                    <span className="row" style={{ gap: 6 }}><TokenLogo token={a} size={20} />${a.ticker}<span className="dim">vs</span><TokenLogo token={b} size={20} />${b.ticker}</span>
+                    <span className={`pill ${c.status === 'live' ? 'pill-live' : c.status === 'ended' ? 'pill-ended' : 'pill-upcoming'}`}>{c.status === 'live' ? 'Live' : c.status === 'ended' ? 'Ended' : 'Starting'}</span>
                   </Link>
                 );
               })}

@@ -46,6 +46,7 @@ Scoring, rules hashing, random-end checks and integrity heuristics live in `supa
      MIN_LIQUIDITY_USD=10000 \
      LAUNCH_FEE_USD=0
    ```
+   Then run `supabase/migrations/20261003000000_open_battles.sql` (open battles, PnL amounts).
    Launches are free by default. To charge a flat launch fee, set `LAUNCH_FEE_USD` (and `VITE_LAUNCH_FEE_USD` in Vercel) plus `LAUNCH_FEE_WALLET`. Also run `supabase/migrations/20261002000000_launches.sql`.
    Without `BIRDEYE_API_KEY`, Holder Growth is neutral (50/50) for every battle, as the published rules state.
 
@@ -55,7 +56,8 @@ Set the variables from `.env.example` under **Project → Settings → Environme
 ### 3. First battles
 - **Launch a new token:** **Launch → Create new token**. The creator uploads an image, sets name and ticker, and adds an optional dev buy. They approve one transaction, which creates the token on pump.fun's bonding curve. Launches are free unless `LAUNCH_FEE_USD` is set; a fee is paid in SOL inside the same transaction, so a failed launch is never charged. The token is listed straight away, and the creator wallet is its lister.
 - **List tokens:** connect a wallet → **List token** → paste a mint. The token needs a DEX pool with at least $10K liquidity. The listing wallet can send and accept challenges for that token.
-- **Challenge:** **⚔️ Challenge** → pick your token and an opponent → rules → send. The opponent's lister accepts from their notifications.
+- **Start a battle:** **⚔️ Start a battle** → pick any two listed coins → length (1 hour to 1 year) and prize split → start. There is no accept step: the battle is scheduled at once and the keeper starts it within a minute. A coin can be in one active battle at a time, and each wallet can have up to 5 active battles.
+- **Coins:** pump.fun coins (bonding curve and PumpSwap) whose pool holds at least `MIN_LIQUIDITY_USD` are listed automatically by the keeper every 10 minutes; auto-listed coins that drain below half that and never battled are removed.
 - **Tournaments (admin):** call the keeper with your secret. The `tokens` array takes 4 or 8 listed mints, in seeding order:
   ```bash
   curl -X POST https://<ref>.supabase.co/functions/v1/battle-keeper \

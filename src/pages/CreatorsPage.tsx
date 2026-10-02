@@ -3,6 +3,7 @@ import type { Token } from '../data/types';
 import { useData } from '../data/DataContext';
 import type { LiveStore } from '../live/store';
 import { ago, num, short, solscanAccount, usd } from '../lib/format';
+import { isAutoListed } from '../lib/view';
 import { StreakBadge, TokenLogo } from '../components/ui';
 
 /**
@@ -44,7 +45,7 @@ function creatorFacts(e: LiveStore, wallet: string) {
 
 export function CreatorsPage() {
   const e = useData();
-  const wallets = [...new Set(Object.values(e.tokens).map((t) => t.listedBy))];
+  const wallets = [...new Set(Object.values(e.tokens).filter((t) => !isAutoListed(t)).map((t) => t.listedBy))];
   return (
     <div className="page">
       <div className="page-head">

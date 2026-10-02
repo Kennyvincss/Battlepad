@@ -139,7 +139,7 @@ export function BattlesPage() {
             <>
               <div style={{ fontSize: 36 }}>⚔️</div>
               <h3 className="display" style={{ fontSize: 22 }}>{e.ready ? 'No battles yet' : 'Loading live battles…'}</h3>
-              {e.ready && <p className="muted">Launch or list a token, then challenge another token to start the first battle.</p>}
+              {e.ready && <p className="muted">Pick any two coins to start the first battle.</p>}
               {e.ready && <div className="row" style={{ gap: 8, justifyContent: 'center' }}><Link to="/launch" className="btn btn-primary">🚀 Launch a token</Link><Link to="/create-battle" className="btn btn-battle">⚔️ Start a battle</Link></div>}
             </>
           ) : 'No battles match. Try another filter.'}
@@ -157,7 +157,7 @@ export function BattlesPage() {
 
 const STEPS = [
   { icon: '🚀', color: '#4f46e5', title: 'Launch a token', body: 'Create a new Solana token for free, or list one that already trades.' },
-  { icon: '⚔️', color: '#e11d48', title: 'Challenge another token', body: 'Two tokens go head to head. The other side accepts and the battle starts.' },
+  { icon: '⚔️', color: '#e11d48', title: 'Start a battle', body: 'Pick any two coins. The battle goes live right away, no waiting for anyone to accept.' },
   { icon: '📈', color: '#059669', title: 'Buy the side you back', body: 'Your buy is a real trade in that token. Price gains, new holders and healthy trading raise its Battle Score.' },
   { icon: '🎲', color: '#d97706', title: 'Surprise ending', body: 'Battles run at least 1 hour, then can end any minute. The higher score at that moment wins.' },
 ];

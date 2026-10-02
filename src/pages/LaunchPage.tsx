@@ -42,7 +42,7 @@ function ListTokenTab() {
     setListing(true);
     try {
       const t = await e.listToken(mint.trim(), desc.trim());
-      ui.toast({ title: `🚀 $${t.ticker} listed`, body: mode === 'battle' ? 'Now pick an opponent.' : 'It can now be challenged.', tone: 'good' });
+      ui.toast({ title: `🚀 $${t.ticker} listed`, body: mode === 'battle' ? 'Now pick an opponent.' : 'It can now battle.', tone: 'good' });
       nav(mode === 'battle' ? `/create-battle?token=${t.id}` : `/token/${t.id}`);
     } catch (err) {
       ui.toast({ title: 'Listing failed', body: (err as Error).message, tone: 'bad' });
@@ -79,7 +79,7 @@ function ListTokenTab() {
             <label htmlFor="desc">Description (optional)</label>
             <textarea id="desc" className="textarea" value={desc} onChange={(ev) => setDesc(ev.target.value)} maxLength={280} placeholder="What's your community about?" />
           </div>
-          <div className="callout callout-info"><span>ℹ️</span><span>Listing an existing token is free. Name, logo and pool are read from live market data; your wallet becomes the token's lister and can send and accept challenges.</span></div>
+          <div className="callout callout-info"><span>ℹ️</span><span>Listing an existing token is free. Name, logo and pool are read from live market data; pump.fun coins with over $10K liquidity are listed automatically.</span></div>
         </div>
 
         <div className="col" style={{ gap: 14 }}>
@@ -110,11 +110,11 @@ function AfterMode({ mode, setMode, what }: { mode: Mode; setMode: (m: Mode) => 
         <span className="pill pill-gold" style={{ position: 'absolute', top: 12, right: 12 }}>Recommended</span>
         <div className="mode-icon">⚔️</div>
         <div className="mode-title">Enter a Battle</div>
-        <div className="mode-desc">Challenge another listed token right away. Battles concentrate attention: a live audience, army rallying, a treasury for the winner and a public Battle Record from day one.</div>
+        <div className="mode-desc">Pick an opponent right away. Battles concentrate attention: a live audience, army rallying, a treasury for the winner and a public Battle Record from day one.</div>
       </button>
       <button className={`mode-card ${mode === 'normal' ? 'active' : ''}`} onClick={() => setMode('normal')}>
         <div className="mode-title" style={{ fontSize: 16 }}>Just list it</div>
-        <div className="mode-desc">Appear in Discover and accept challenges later.</div>
+        <div className="mode-desc">Appear in Coins. Anyone can start a battle with it later.</div>
       </button>
     </>
   );

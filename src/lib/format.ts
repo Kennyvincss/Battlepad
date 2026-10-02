@@ -51,6 +51,11 @@ export function duration(ms: number, withSeconds = false) {
   const h = Math.floor(totalS / 3600);
   const m = Math.floor((totalS % 3600) / 60);
   const s = totalS % 60;
+  // Long spans read better in days / months / years.
+  const d = Math.floor(totalS / 86_400);
+  if (d >= 365) { const y = d / 365; return `${Number.isInteger(y) ? y : y.toFixed(1)} year${y === 1 ? '' : 's'}`; }
+  if (d >= 60) { const mo = Math.round(d / 30); return `${mo} months`; }
+  if (d >= 2) { const hh = h - d * 24; return withSeconds ? `${d}d ${hh}h ${String(m).padStart(2, '0')}m` : hh ? `${d}d ${hh}h` : `${d} days`; }
   if (withSeconds) return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s` : `${m}m ${String(s).padStart(2, '0')}s`;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }

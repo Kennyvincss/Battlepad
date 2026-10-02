@@ -8,9 +8,9 @@ import { ago, short, sol } from '../lib/format';
 /** `sec` items fold into the "More" menu on mid-size screens so the bar never crowds. */
 const NAV = [
   { to: '/', label: 'Battles', icon: '⚔️', end: true },
-  { to: '/tournaments', label: 'Tournaments', icon: '🏆' },
+  { to: '/coins', label: 'Coins', icon: '🪙' },
   { to: '/launch', label: 'Launch', icon: '🚀' },
-  { to: '/discover', label: 'Discover', icon: '🧭' },
+  { to: '/tournaments', label: 'Tournaments', icon: '🏆' },
   { to: '/leaderboard', label: 'Leaderboard', icon: '📊' },
   { to: '/creators', label: 'Creators', icon: '🛠', sec: true },
   { to: '/treasury', label: 'Treasury', icon: '🏛', sec: true },
@@ -107,15 +107,15 @@ function Notifications() {
       {open && (
         <div className="panel dropdown">
           <div className="panel-head"><span className="panel-title">Notifications</span></div>
-          {!data.wallet.connected && <div className="empty">Connect a wallet to get challenges and updates for tokens you listed.</div>}
-          {data.wallet.connected && list.length === 0 && <div className="empty">Nothing yet. Challenges to your tokens and your battle results show up here.</div>}
+          {!data.wallet.connected && <div className="empty">Connect a wallet to get updates on your battles and coins.</div>}
+          {data.wallet.connected && list.length === 0 && <div className="empty">Nothing yet. Battles involving your coins and battles you started show up here.</div>}
           {list.map((n) => (
             <Link key={n.id} to={n.link ?? '/'} className="notif" onClick={() => setOpen(false)}>
               <span style={{ fontSize: 20, width: 34, textAlign: 'center' }}>{n.kind === 'challenge' ? '⚔️' : n.kind === 'battle-end' ? '🏁' : '🔴'}</span>
               <div className="grow">
                 <div style={{ fontWeight: 800, fontSize: 12.5, letterSpacing: '0.04em' }}>{n.title}</div>
                 <div className="muted" style={{ fontSize: 12.5 }}>{n.body}</div>
-                {n.kind === 'challenge' && <span className="btn btn-battle btn-sm" style={{ marginTop: 8 }}>Review challenge</span>}
+                {n.kind === 'challenge' && <span className="btn btn-battle btn-sm" style={{ marginTop: 8 }}>Open battle</span>}
                 <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>{ago(data.now - n.t)}</div>
               </div>
             </Link>
@@ -197,7 +197,7 @@ function Footer() {
         </p>
         <div className="row wrap" style={{ gap: 16 }}>
           <Link to="/rules" className="link">How battles work</Link>
-          <Link to="/discover" className="link">All tokens</Link>
+          <Link to="/coins" className="link">All coins</Link>
           <Link to="/creators" className="link">Creators</Link>
         </div>
       </div>

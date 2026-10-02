@@ -18,6 +18,16 @@ export type StoreEvent =
   | { type: 'lead-change'; battleId: BattleId; leader: TokenId }
   | { type: 'toast'; title: string; body?: string; tone?: 'good' | 'bad' | 'info' };
 
+/** One swap made through BATTLE by the connected wallet (amounts as quoted at the time). */
+export interface LedgerEntry { tx: string; tokenId: TokenId; side: TradeSide; sol: number; tokens: number; t: number }
+
+/** Average-cost PnL for one coin, in USD at the current SOL price. */
+export interface Pnl {
+  held: number; tracked: number; avgCostSol: number;
+  valueUsd: number | null; costUsd: number | null; unrealizedUsd: number | null; realizedUsd: number | null; totalUsd: number | null;
+  pct: number | null; untrackedQty: number;
+}
+
 export type TradeResult = { ok: true; signature: string; joinedArmy?: TokenId } | { ok: false; error: string };
 
 const ROUND_NAMES: Record<number, string[]> = { 2: ['Semifinal', 'Final'], 3: ['Quarterfinal', 'Semifinal', 'Final'] };
@@ -121,7 +131,7 @@ export class LiveStore {
 
     db.channel('global')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'battles' }, (p) => this.onBattleRow(p.new as any))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'tokens' }, (p) => { const r = p.new as any; if (r?.mint) { this.tokens[r.mint] = mapToken(r); void this.refreshMarkets(); this.bump(); } })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tokens' }, (p) => this.onTokenRow(p.eventType, (p.new ?? p.old) as any))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tournaments' }, () => void this.reloadTournaments())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'tournament_matches' }, () => void this.reloadTournaments())
       .subscribe();
@@ -175,8 +185,31 @@ export class LiveStore {
     if (tr.data && tm.data) { this.setTournaments(tr.data, tm.data); this.bump(); }
   }
 
+  private marketsTimer?: ReturnType<typeof setTimeout>;
+  private lastFullMarkets = 0;
+
+  /** Token rows arrive in bursts when the keeper auto-lists pump.fun coins: batch the price refresh. */
+  private onTokenRow(kind: string, r: any) {
+    if (!r?.mint) return;
+    if (kind === 'DELETE') delete this.tokens[r.mint]; else this.tokens[r.mint] = mapToken(r);
+    clearTimeout(this.marketsTimer);
+    this.marketsTimer = setTimeout(() => void this.refreshMarkets(), 1500);
+    this.bump();
+  }
+
+  /**
+   * Prices for coins in battles, coins you hold and coins without a price yet refresh every
+   * 20s; every other coin every 2 minutes (keeps DexScreener calls low with many coins).
+   */
   async refreshMarkets() {
-    const list = Object.values(this.tokens).map((t) => ({ mint: t.mint, pairAddress: t.pairAddress }));
+    const now = Date.now();
+    const full = now - this.lastFullMarkets > 120_000;
+    const hot = new Set<string>(Object.keys(this.wallet.tokens));
+    this.battles.forEach((b) => { if (b.status !== 'ended' && b.status !== 'declined' && b.status !== 'cancelled') { hot.add(b.a.tokenId); hot.add(b.b.tokenId); } });
+    if (full) this.lastFullMarkets = now;
+    const list = Object.values(this.tokens)
+      .filter((t) => full || hot.has(t.id) || !this.markets[t.id])
+      .map((t) => ({ mint: t.mint, pairAddress: t.pairAddress }));
     try {
       if (list.length) {
         const m = await fetchMarkets(list);
@@ -254,9 +287,9 @@ export class LiveStore {
     for (const b of this.battles) {
       const ta = this.tokens[b.a.tokenId], tb = this.tokens[b.b.tokenId];
       if (!ta || !tb) continue;
-      if (b.status === 'pending' && mine.has(b.b.tokenId)) out.push({ id: `c${b.id}`, t: b.scheduledStart, kind: 'challenge', title: '⚔️ BATTLE CHALLENGE', body: `$${ta.ticker} has challenged $${tb.ticker}.`, link: `/challenge/${b.id}` });
-      if ((mine.has(b.a.tokenId) || mine.has(b.b.tokenId)) && b.status === 'live') out.push({ id: `l${b.id}`, t: b.startedAt ?? 0, kind: 'battle-start', title: '⚔️ YOUR BATTLE IS LIVE', body: `$${ta.ticker} vs $${tb.ticker}`, link: `/battle/${b.id}` });
-      if ((mine.has(b.a.tokenId) || mine.has(b.b.tokenId)) && b.status === 'ended' && this.now - (b.endedAt ?? 0) < 86_400_000) out.push({ id: `e${b.id}`, t: b.endedAt ?? 0, kind: 'battle-end', title: '🏁 BATTLE OVER', body: `$${this.tokens[b.winner!]?.ticker} won $${ta.ticker} vs $${tb.ticker}.`, link: `/battle/${b.id}` });
+      if ((b.status === 'scheduled' || b.status === 'pending') && mine.has(b.b.tokenId) && b.createdBy !== this.wallet.address) out.push({ id: `c${b.id}`, t: b.scheduledStart, kind: 'challenge', title: '⚔️ YOUR COIN WAS CHALLENGED', body: `$${ta.ticker} vs $${tb.ticker} starts ${b.scheduledStart <= this.now ? 'now' : 'soon'}.`, link: `/battle/${b.id}` });
+      if ((mine.has(b.a.tokenId) || mine.has(b.b.tokenId) || b.createdBy === this.wallet.address) && b.status === 'live') out.push({ id: `l${b.id}`, t: b.startedAt ?? 0, kind: 'battle-start', title: '⚔️ YOUR BATTLE IS LIVE', body: `$${ta.ticker} vs $${tb.ticker}`, link: `/battle/${b.id}` });
+      if ((mine.has(b.a.tokenId) || mine.has(b.b.tokenId) || b.createdBy === this.wallet.address) && b.status === 'ended' && this.now - (b.endedAt ?? 0) < 86_400_000) out.push({ id: `e${b.id}`, t: b.endedAt ?? 0, kind: 'battle-end', title: '🏁 BATTLE OVER', body: `$${this.tokens[b.winner!]?.ticker} won $${ta.ticker} vs $${tb.ticker}.`, link: `/battle/${b.id}` });
     }
     return out.sort((x, y) => y.t - x.t);
   }
@@ -366,7 +399,65 @@ export class LiveStore {
     w.on?.('accountChanged', () => void this.disconnectWallet());
     await this.syncSession();
     void this.refreshBalances();
+    void this.loadLedger();
     this.bump();
+  }
+
+  /* ------------------------------------------------------------ PnL */
+  ledger: LedgerEntry[] = [];
+
+  /** Swaps made through BATTLE: kept on this device and (when signed in) in the database. */
+  private async loadLedger() {
+    const a = this.wallet.address;
+    if (!a) return;
+    const byTx = new Map<string, LedgerEntry>(ls.get<LedgerEntry[]>(`battle.ledger.${a}`, []).map((x) => [x.tx, x]));
+    if (supabase) {
+      const { data } = await supabase.from('battle_swaps').select('tx, token, side, sol_amount, token_amount, created_at').eq('wallet', a).not('token_amount', 'is', null).limit(5000);
+      for (const r of data ?? []) if (!byTx.has(r.tx)) byTx.set(r.tx, { tx: r.tx, tokenId: r.token, side: r.side, sol: +r.sol_amount, tokens: +r.token_amount, t: Date.parse(r.created_at) });
+    }
+    if (this.wallet.address !== a) return;
+    this.ledger = [...byTx.values()].sort((x, y) => x.t - y.t);
+    this.bump();
+  }
+
+  private addLedger(x: LedgerEntry) {
+    const a = this.wallet.address;
+    if (!a) return;
+    this.ledger = [...this.ledger.filter((l) => l.tx !== x.tx), x].sort((p, q) => p.t - q.t);
+    ls.set(`battle.ledger.${a}`, this.ledger.slice(-2000));
+  }
+
+  /**
+   * Live PnL for a coin from trades made through BATTLE (average cost). Coins bought
+   * elsewhere have no known cost, so they're left out and reported as `untrackedQty`.
+   */
+  pnl(tokenId: TokenId): Pnl | null {
+    const trades = this.ledger.filter((x) => x.tokenId === tokenId);
+    if (!trades.length) return null;
+    let qty = 0, cost = 0, realized = 0;
+    for (const x of trades) {
+      if (x.side === 'buy') { qty += x.tokens; cost += x.sol; continue; }
+      const sold = Math.min(x.tokens, qty);
+      const avg = qty > 0 ? cost / qty : 0;
+      realized += x.sol - avg * sold;
+      cost -= avg * sold;
+      qty -= sold;
+    }
+    const held = this.wallet.tokens[tokenId]?.amount ?? 0;
+    const tracked = Math.min(held, qty);
+    const avgCostSol = qty > 0 ? cost / qty : 0;
+    const px = this.markets[tokenId]?.priceUsd;
+    const sol = this.solUsd;
+    const valueUsd = px != null ? tracked * px : null;
+    const costUsd = sol != null ? tracked * avgCostSol * sol : null;
+    const unrealizedUsd = valueUsd != null && costUsd != null ? valueUsd - costUsd : null;
+    const realizedUsd = sol != null ? realized * sol : null;
+    return {
+      held, tracked, avgCostSol, valueUsd, costUsd, unrealizedUsd, realizedUsd,
+      totalUsd: unrealizedUsd != null && realizedUsd != null ? unrealizedUsd + realizedUsd : null,
+      pct: unrealizedUsd != null && costUsd ? unrealizedUsd / costUsd : null,
+      untrackedQty: Math.max(0, held - qty),
+    };
   }
 
   /** Returns false when the wallet extension isn't installed. */
@@ -385,6 +476,7 @@ export class LiveStore {
     await supabase?.auth.signOut();
     this.provider = undefined;
     this.wallet = { connected: false, signedIn: false, solBalance: null, tokens: {} };
+    this.ledger = [];
     ls.set('battle.wallet', null);
     this.bump();
   }
@@ -439,9 +531,14 @@ export class LiveStore {
       const signature = await signAndSend(this.provider, tx);
       await confirm(signature);
       const b = battleId ? this.getBattle(battleId) : undefined;
-      if (supabase && this.wallet.signedIn && b?.status === 'live') {
-        const solAmount = q.side === 'buy' ? q.inputAmount : q.outputAmount;
-        await supabase.from('battle_swaps').insert({ tx: signature, battle_id: b.id, wallet: this.wallet.address, token: q.tokenId, side: q.side, sol_amount: solAmount, fee_sol: (solAmount * q.feeBps) / 10_000 });
+      const solAmount = q.side === 'buy' ? q.inputAmount : q.outputAmount;
+      const tokenAmount = q.side === 'buy' ? q.outputAmount : q.inputAmount;
+      this.addLedger({ tx: signature, tokenId: q.tokenId, side: q.side, sol: solAmount, tokens: tokenAmount, t: Date.now() });
+      if (supabase && this.wallet.signedIn) {
+        await supabase.from('battle_swaps').insert({
+          tx: signature, battle_id: b?.status === 'live' ? b.id : null, wallet: this.wallet.address, token: q.tokenId, side: q.side,
+          sol_amount: solAmount, token_amount: tokenAmount, fee_sol: (solAmount * q.feeBps) / 10_000,
+        });
       }
       let joinedArmy: TokenId | undefined;
       if (b?.status === 'live' && q.side === 'buy') {
@@ -550,19 +647,14 @@ export class LiveStore {
     return (data ?? []).map((r) => ({ feeUsd: +r.fee_usd, feeSol: r.fee_lamports / 1e9, t: Date.parse(r.launched_at) }));
   }
 
-  async createChallenge(from: TokenId, to: TokenId, rules: BattleRules, message: string, start: number) {
+  /** Starts a battle between any two listed coins. No accept step: it goes live at `start` (or within a minute). */
+  async createBattle(a: TokenId, b: TokenId, rules: BattleRules, start: number) {
     if (!supabase) throw new Error('Backend not configured.');
-    const { data, error } = await supabase.rpc('create_challenge', {
-      p_from: from, p_to: to, p_rules: rules, p_rules_hash: rulesHash(rules, from, to), p_message: message || null, p_start: new Date(start).toISOString(),
+    const { data, error } = await supabase.rpc('create_battle', {
+      p_a: a, p_b: b, p_rules: rules, p_rules_hash: rulesHash(rules, a, b), p_start: new Date(start).toISOString(),
     });
     if (error) throw new Error(error.message);
     return data as string;
-  }
-
-  async respondChallenge(battleId: BattleId, accept: boolean) {
-    if (!supabase) throw new Error('Backend not configured.');
-    const { error } = await supabase.rpc('respond_challenge', { p_battle: battleId, p_accept: accept });
-    if (error) throw new Error(error.message);
   }
 
   /* ------------------------------------------------------------ chat */

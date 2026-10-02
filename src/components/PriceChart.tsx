@@ -40,12 +40,18 @@ export function PriceChart({ battle, height = 360 }: { battle: Battle; height?: 
   const canvas = useRef<HTMLCanvasElement>(null);
   const [w, setW] = useState(600);
   const [hover, setHover] = useState<number | null>(null);
+  /** Visible time window when zoomed/panned; null = default (latest data). */
+  const [range, setRange] = useState<{ t0: number; t1: number } | null>(null);
+  const drag = useRef<{ x: number; t0: number; t1: number } | null>(null);
+  const pinch = useRef<{ d: number; cx: number; t0: number; t1: number } | null>(null);
   const ta = e.token(battle.a.tokenId);
   const tb = e.token(battle.b.tokenId);
   const interval = INTERVALS.find((x) => x.k === iv)!;
   const A = useCandles(ta, interval.tf);
   const B = useCandles(tb, interval.tf);
   const started = battle.startedAt;
+
+  useEffect(() => { setRange(null); }, [iv, view, battle.id]);
 
   useEffect(() => {
     const ro = new ResizeObserver(([en]) => setW(Math.floor(en.contentRect.width)));
@@ -86,12 +92,16 @@ export function PriceChart({ battle, height = 360 }: { battle: Battle; height?: 
     const allT = series.kind === 'compare' ? [...series.ca, ...series.cb].map((p) => p.t) : series.c.map((c) => c.t);
     if (!allT.length) return;
     const maxCandles = Math.max(20, Math.floor(plotW / 7));
-    let t0 = Math.min(...allT);
-    const t1 = Math.max(...allT) + interval.ms;
-    if (series.kind === 'candle') t0 = Math.max(t0, t1 - maxCandles * interval.ms);
+    const full0 = Math.min(...allT);
+    const full1 = Math.max(...allT) + interval.ms;
+    let t0 = series.kind === 'candle' ? Math.max(full0, full1 - maxCandles * interval.ms) : full0;
+    let t1 = full1;
+    if (range) { t0 = Math.max(full0, range.t0); t1 = Math.min(full1, range.t1); }
     const X = (t: number) => padL + ((t - t0) / (t1 - t0 || 1)) * plotW;
 
-    const vis = <T extends { t: number }>(arr: T[]) => arr.filter((p) => p.t >= t0);
+    const vis = <T extends { t: number }>(arr: T[]) => arr.filter((p) => p.t >= t0 - interval.ms && p.t <= t1);
+    ctx.save();
+    ctx.beginPath(); ctx.rect(padL, 0, plotW + padR, height); ctx.clip();
     let vals: number[];
     if (series.kind === 'compare') vals = [...vis(series.ca).map((p) => p.v), ...vis(series.cb).map((p) => p.v), 0];
     else if (series.kind === 'line') vals = vis(series.c).map((c) => c.c);
@@ -187,12 +197,50 @@ export function PriceChart({ battle, height = 360 }: { battle: Battle; height?: 
       }
       if (cs.length) tag(cs.at(-1)!.c, col, fmtPrice(cs.at(-1)!.c));
     }
+    ctx.restore();
     if (hover !== null && hover >= padL && hover <= padL + plotW) {
       ctx.strokeStyle = 'rgba(15,23,42,0.212)';
       ctx.beginPath(); ctx.moveTo(hover + 0.5, padT); ctx.lineTo(hover + 0.5, padT + plotH + volH); ctx.stroke();
     }
-    (cv as unknown as { _map: unknown })._map = { t0, t1, padL, plotW };
-  }, [series, w, height, hover, view, battle, ta, tb, started, interval.ms]);
+    (cv as unknown as { _map: unknown })._map = { t0, t1, padL, plotW, full0, full1 };
+  }, [series, w, height, hover, view, battle, ta, tb, started, interval.ms, range]);
+
+  type Map = { t0: number; t1: number; padL: number; plotW: number; full0: number; full1: number };
+  const getMap = () => (canvas.current as unknown as { _map?: Map })?._map;
+  /** Clamp a window to the data and to a sensible minimum width; full width = back to default. */
+  const setWindow = (n0: number, n1: number, m: Map) => {
+    const full = m.full1 - m.full0;
+    const span = Math.max(Math.min(n1 - n0, full), Math.min(full, 8 * interval.ms));
+    if (span >= full * 0.999) { setRange(null); return; }
+    let a = n0;
+    if (a < m.full0) a = m.full0;
+    if (a + span > m.full1) a = m.full1 - span;
+    setRange({ t0: a, t1: a + span });
+  };
+  const zoomAt = (px: number, factor: number) => {
+    const m = getMap();
+    if (!m) return;
+    const tc = m.t0 + ((px - m.padL) / m.plotW) * (m.t1 - m.t0);
+    setWindow(tc - (tc - m.t0) * factor, tc + (m.t1 - tc) * factor, m);
+  };
+  const panBy = (dxPx: number, base: { t0: number; t1: number }) => {
+    const m = getMap();
+    if (!m) return;
+    const dt = (-dxPx / m.plotW) * (base.t1 - base.t0);
+    setWindow(base.t0 + dt, base.t1 + dt, m);
+  };
+
+  // Wheel zoom needs a non-passive listener so the page doesn't scroll at the same time.
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const onWheel = (ev: WheelEvent) => {
+      ev.preventDefault();
+      zoomAt(ev.clientX - el.getBoundingClientRect().left, ev.deltaY > 0 ? 1.18 : 0.85);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  });
 
   let tip: React.ReactNode = null;
   const map = (canvas.current as unknown as { _map?: { t0: number; t1: number; padL: number; plotW: number } })?._map;
@@ -223,17 +271,49 @@ export function PriceChart({ battle, height = 360 }: { battle: Battle; height?: 
           {INTERVALS.map((x) => <button key={x.k} className={iv === x.k ? 'active' : ''} onClick={() => setIv(x.k)}>{x.k}</button>)}
         </div>
       </div>
-      <div ref={wrap} className="chart-wrap" style={{ height }}
-        onMouseMove={(ev) => setHover(ev.clientX - ev.currentTarget.getBoundingClientRect().left)}
-        onMouseLeave={() => setHover(null)}>
+      <div ref={wrap} className={`chart-wrap ${range ? 'zoomed' : ''}`} style={{ height }}
+        onMouseDown={(ev) => { const m = getMap(); if (m) drag.current = { x: ev.clientX, t0: m.t0, t1: m.t1 }; }}
+        onMouseMove={(ev) => {
+          if (drag.current && ev.buttons === 1) { panBy(ev.clientX - drag.current.x, drag.current); setHover(null); return; }
+          setHover(ev.clientX - ev.currentTarget.getBoundingClientRect().left);
+        }}
+        onMouseUp={() => { drag.current = null; }}
+        onMouseLeave={() => { drag.current = null; setHover(null); }}
+        onDoubleClick={() => setRange(null)}
+        onTouchStart={(ev) => {
+          const m = getMap();
+          if (!m) return;
+          const left = ev.currentTarget.getBoundingClientRect().left;
+          if (ev.touches.length === 2) {
+            const [p, q] = [ev.touches[0], ev.touches[1]];
+            pinch.current = { d: Math.abs(p.clientX - q.clientX) || 1, cx: (p.clientX + q.clientX) / 2 - left, t0: m.t0, t1: m.t1 };
+            drag.current = null;
+          } else if (ev.touches.length === 1) drag.current = { x: ev.touches[0].clientX, t0: m.t0, t1: m.t1 };
+        }}
+        onTouchMove={(ev) => {
+          const m = getMap();
+          if (!m) return;
+          if (ev.touches.length === 2 && pinch.current) {
+            const pc = pinch.current;
+            const factor = pc.d / (Math.abs(ev.touches[0].clientX - ev.touches[1].clientX) || 1);
+            const tc = pc.t0 + ((pc.cx - m.padL) / m.plotW) * (pc.t1 - pc.t0);
+            setWindow(tc - (tc - pc.t0) * factor, tc + (pc.t1 - tc) * factor, m);
+          } else if (ev.touches.length === 1 && drag.current) panBy(ev.touches[0].clientX - drag.current.x, drag.current);
+        }}
+        onTouchEnd={() => { drag.current = null; pinch.current = null; }}>
         <canvas ref={canvas} style={{ width: w, height, display: 'block' }} />
+        <div className="chart-zoom" onMouseDown={(ev) => ev.stopPropagation()} onTouchStart={(ev) => ev.stopPropagation()}>
+          <button className="btn btn-sm" aria-label="Zoom in" onClick={() => { const m = getMap(); if (m) zoomAt(m.padL + m.plotW * 0.75, 0.7); }}>＋</button>
+          <button className="btn btn-sm" aria-label="Zoom out" onClick={() => { const m = getMap(); if (m) zoomAt(m.padL + m.plotW * 0.75, 1.45); }}>−</button>
+          {range && <button className="btn btn-sm" onClick={() => setRange(null)}>Reset</button>}
+        </div>
         {(A.loading || B.loading) && !A.candles.length && <div className="chart-msg">Loading live candles…</div>}
         {err && !A.candles.length && <div className="chart-msg">Chart data unavailable ({err}). Retrying every minute.</div>}
         {empty && !err && <div className="chart-msg">No candles yet for this timeframe.</div>}
         {tip && <div className="chart-tip" style={{ left: Math.min(hover! + 14, w - 170) }}>{tip}</div>}
         <div className="chart-legend">
           {view === 'compare' ? <span>% change {started ? 'since battle start' : 'over the window'} · {iv === 'ALL' ? 'full battle' : `${iv} candles`}</span> : <span>{(view === 'a' ? ta : tb)?.ticker}/USD · {iv === 'ALL' ? 'full battle' : `${iv} candles`}</span>}
-          <span> · GeckoTerminal</span>
+          <span> · GeckoTerminal · scroll or pinch to zoom, drag to move</span>
         </div>
       </div>
     </div>

@@ -10,7 +10,7 @@
 //      SOLANA_RPC_URL (optional, swap verification), FEE_ACCOUNT (optional).
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import type { BattleRules, EndCheck, ScoreInputs, SideScore } from '../_shared/types.ts';
-import { canonical, makeRules, rulesHash } from '../_shared/rules.ts';
+import { DAY, DURATIONS, canonical, makeRules, rulesHash, sampleEveryMs } from '../_shared/rules.ts';
 import { computeScores } from '../_shared/score.ts';
 import { drandRoundAfter, drandRoundTime, drandRoundUrl, endCheckValue } from '../_shared/randomEnd.ts';
 import { analyzeTrades, type TradeLite } from '../_shared/integrity.ts';
@@ -101,7 +101,7 @@ function rulesValid(r: BattleRules) {
     const rebuilt = makeRules({ type: r.type, minDurationMs: r.randomEnd.minDurationMs, split: r.rewardSplit });
     const s = r.rewardSplit;
     const splitOk = [s.winnerLiquidity, s.holderRewards, s.platform].every((x) => x >= 0 && x <= 1) && Math.abs(s.winnerLiquidity + s.holderRewards + s.platform - 1) < 1e-6;
-    return splitOk && r.randomEnd.minDurationMs <= 3 * 3_600_000 && canonical(rebuilt) === canonical(r);
+    return splitOk && DURATIONS.some((d) => d.ms === r.randomEnd.minDurationMs) && canonical(rebuilt) === canonical(r);
   } catch { return false; }
 }
 
@@ -146,7 +146,13 @@ async function updateLive(db: Db, log: string[]) {
   const mk = await markets(battles.flatMap((b) => [b.ta, b.tb]));
   await syncPairs(db, battles.flatMap((b) => [b.ta, b.tb]), mk);
   const now = Date.now();
-  let tradeCalls = 0;
+  // GeckoTerminal's free tier allows ~30 calls/min (2 per battle). Poll the battles that
+  // waited longest first; long battles (> 1 day) only every 5 minutes.
+  const pollIds = new Set(battles
+    .filter((b) => now - (b.state?.lastTradesPoll ?? 0) >= (b.rules.randomEnd.minDurationMs > DAY ? 5 * MIN : 0))
+    .sort((x, y) => (x.state?.lastTradesPoll ?? 0) - (y.state?.lastTradesPoll ?? 0))
+    .slice(0, 11)
+    .map((b) => b.id));
 
   for (const b of battles) {
     try {
@@ -160,9 +166,9 @@ async function updateLive(db: Db, log: string[]) {
 
       // Trades (GeckoTerminal free tier ≈ 30 calls/min).
       const prevState = b.state ?? {};
+      if (pollIds.has(b.id)) prevState.lastTradesPoll = now;
       for (const [tok, side] of [[b.ta, 'a'], [b.tb, 'b']] as const) {
-        if (tradeCalls >= 26) break;
-        tradeCalls++;
+        if (!pollIds.has(b.id)) break;
         try {
           const rows = (await poolTrades(tok.pair_address, tok.mint)).filter((t: { ts: number }) => t.ts >= started);
           if (rows.length) {
@@ -178,7 +184,9 @@ async function updateLive(db: Db, log: string[]) {
       }
 
       // Integrity + market-quality inputs from all battle trades.
-      const { data: trades } = await db.from('battle_trades').select('token, wallet, side, usd, ts, flagged').eq('battle_id', b.id).limit(20000);
+      // Long battles: market quality uses the most recent 7 days of trades (as their rules state).
+      const since = b.rules.randomEnd.minDurationMs > DAY ? Math.max(started, now - 7 * DAY) : started;
+      const { data: trades } = await db.from('battle_trades').select('token, wallet, side, usd, ts, flagged').eq('battle_id', b.id).gte('ts', new Date(since).toISOString()).order('ts', { ascending: false }).limit(20000);
       const sideStats = async (tok: any) => {
         const list = (trades ?? []).filter((t) => t.token === tok.mint);
         const flaggedWallets = new Set(list.filter((t) => t.flagged).map((t) => t.wallet));
@@ -251,11 +259,14 @@ async function updateLive(db: Db, log: string[]) {
       }
       state.holderMilestone = hm;
 
-      await db.from('battle_snapshots').insert({
+      if (now - (prevState.lastSnapAt ?? 0) >= sampleEveryMs(b.rules) - 5000) {
+        (state as Record<string, unknown>).lastSnapAt = now;
+        await db.from('battle_snapshots').insert({
         battle_id: b.id, t: new Date(now).toISOString(),
         price_a: A.priceUsd, price_b: B.priceUsd, mcap_a: A.mcapUsd, mcap_b: B.mcapUsd, liq_a: A.liqUsd, liq_b: B.liqUsd,
         holders_a: A.holders, holders_b: B.holders, score_a: scA.total, score_b: scB.total,
-      });
+        });
+      }
       await db.from('battles').update({ tw_acc_a: twA, tw_acc_b: twB, tw_time_ms: twT, last_sample_at: new Date(now).toISOString(), state }).eq('id', b.id);
 
       await runEndChecks(db, b, started, now, { A, B, scA, scB, sa, sb }, log);
@@ -306,6 +317,79 @@ async function finalize(db: Db, b: any, at: number, check: EndCheck | null, hitC
   await feed(db, b.id, 'lead', `🏆 BATTLE OVER — $${w.symbol} wins`, winner);
   log.push(`ended #${b.number}: ${w.symbol} wins`);
   if (b.tournament_id) await advanceTournament(db, b, winner);
+}
+
+// ------------------------------------------------------------------ pump.fun auto-listing
+const SOL_MINT = 'So11111111111111111111111111111111111111112';
+const minLiquidity = () => Number(env('MIN_LIQUIDITY_USD') ?? 10000);
+const hueOf = (mint: string) => { let h = 0; for (const c of mint) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+
+/**
+ * Lists pump.fun coins (bonding curve and PumpSwap) whose pool holds at least
+ * MIN_LIQUIDITY_USD, so they can battle without anyone listing them by hand.
+ * Runs every 10 minutes (4 GeckoTerminal calls). Auto-listed coins whose liquidity
+ * later falls below half the minimum, and that never battled, are removed again.
+ */
+async function discoverPumpCoins(db: Db, log: string[]) {
+  const min = minLiquidity();
+  const found = new Map<string, number>();
+  for (const dex of ['pump-fun', 'pumpswap']) {
+    for (const page of [1, 2]) {
+      try {
+        const j = await fetchJson(`https://api.geckoterminal.com/api/v2/networks/solana/dexes/${dex}/pools?page=${page}&sort=h24_volume_usd_desc`, { headers: { accept: 'application/json' } });
+        for (const p of j.data ?? []) {
+          const mint = String(p.relationships?.base_token?.data?.id ?? '').replace(/^solana_/, '');
+          const reserve = +(p.attributes?.reserve_in_usd ?? 0);
+          if (mint && mint !== SOL_MINT && reserve >= min) found.set(mint, Math.max(reserve, found.get(mint) ?? 0));
+        }
+      } catch (e) { log.push(`discover ${dex} p${page}: ${e}`); }
+    }
+  }
+  let added = 0;
+  if (found.size) {
+    const { data: existing } = await db.from('tokens').select('mint').in('mint', [...found.keys()]);
+    const have = new Set((existing ?? []).map((r) => r.mint));
+    const fresh = [...found.keys()].filter((m) => !have.has(m)).slice(0, 60);
+    for (let i = 0; i < fresh.length; i += 30) {
+      const chunk = fresh.slice(i, i + 30);
+      try {
+        const pairs: any[] = await fetchJson(`https://api.dexscreener.com/tokens/v1/solana/${chunk.join(',')}`);
+        const rows = chunk.flatMap((mint) => {
+          const p = pairs.filter((x) => x.baseToken?.address === mint).sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0];
+          if (!p || Math.max(p.liquidity?.usd ?? 0, found.get(mint) ?? 0) < min) return [];
+          const soc = Object.fromEntries((p.info?.socials ?? []).map((x: any) => [x.type === 'twitter' ? 'x' : x.type, x.url]));
+          return [{
+            mint, symbol: String(p.baseToken.symbol ?? '').slice(0, 20), name: String(p.baseToken.name ?? '').slice(0, 60),
+            logo_url: p.info?.imageUrl ?? null, pair_address: p.pairAddress, dex_id: p.dexId, hue: hueOf(mint),
+            description: null, socials: { website: p.info?.websites?.[0]?.url, ...soc }, listed_by: 'auto:pump.fun',
+          }];
+        });
+        if (rows.length) {
+          const { error } = await db.from('tokens').upsert(rows, { onConflict: 'mint', ignoreDuplicates: true });
+          if (error) log.push(`discover insert: ${error.message}`); else added += rows.length;
+        }
+      } catch (e) { log.push(`discover metadata: ${e}`); }
+    }
+  }
+
+  // Prune auto-listed coins that drained and never battled.
+  let removed = 0;
+  const { data: autos } = await db.from('tokens').select('mint').eq('listed_by', 'auto:pump.fun').lt('listed_at', new Date(Date.now() - DAY).toISOString()).limit(60);
+  if (autos?.length) {
+    const mints = autos.map((r) => r.mint);
+    const { data: used } = await db.from('battles').select('token_a, token_b').or(`token_a.in.(${mints.join(',')}),token_b.in.(${mints.join(',')})`);
+    const busy = new Set((used ?? []).flatMap((b) => [b.token_a, b.token_b]));
+    const idle = mints.filter((m) => !busy.has(m));
+    for (let i = 0; i < idle.length; i += 30) {
+      try {
+        const chunk = idle.slice(i, i + 30);
+        const pairs: any[] = await fetchJson(`https://api.dexscreener.com/tokens/v1/solana/${chunk.join(',')}`);
+        const drained = chunk.filter((m) => Math.max(0, ...pairs.filter((x) => x.baseToken?.address === m).map((x) => x.liquidity?.usd ?? 0)) < min / 2);
+        if (drained.length) { await db.from('tokens').delete().in('mint', drained); removed += drained.length; }
+      } catch (e) { log.push(`prune: ${e}`); }
+    }
+  }
+  if (added || removed) log.push(`pump.fun: listed ${added}, removed ${removed}`);
 }
 
 // ------------------------------------------------------------------ tournaments
@@ -404,5 +488,6 @@ Deno.serve(async (req) => {
   await step('start', () => startBattles(db, log));
   await step('live', () => updateLive(db, log));
   await step('swaps', () => verifySwaps(db, log));
+  if (new Date().getUTCMinutes() % 10 === 0 || body.action === 'discover') await step('discover', () => discoverPumpCoins(db, log));
   return Response.json({ ok: true, log });
 });

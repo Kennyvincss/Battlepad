@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useData } from '../data/DataContext';
+import { isAutoListed } from '../lib/view';
 import { num, short, usd } from '../lib/format';
 import { StreakBadge, TokenLogo } from '../components/ui';
 
@@ -26,6 +27,7 @@ export function LeaderboardPage() {
   const tokens = Object.values(e.tokens).map((t) => ({ t, r: e.recordFor(t.id), mcap: e.markets[t.id]?.mcapUsd ?? null }));
   const creatorMap = new Map<string, { wallet: string; toks: typeof tokens; wins: number; played: number }>();
   for (const x of tokens) {
+    if (isAutoListed(x.t)) continue;
     const c = creatorMap.get(x.t.listedBy) ?? { wallet: x.t.listedBy, toks: [], wins: 0, played: 0 };
     c.toks.push(x); c.wins += x.r.wins; c.played += x.r.entries.length;
     creatorMap.set(x.t.listedBy, c);

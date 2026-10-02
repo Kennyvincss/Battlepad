@@ -137,11 +137,35 @@ var HOUR = 60 * MINUTE;
 function hazardFor(epochMs, meanAfterMinMs) {
   return 1 - Math.exp(-epochMs / meanAfterMinMs);
 }
+var DAY = 24 * HOUR;
 var BATTLE_TYPES = {
-  classic: { label: "Classic", blurb: "Balanced pace. Expected ~45m of sudden-death after the minimum.", meanAfterMin: 45 * MINUTE, epochMs: MINUTE },
-  blitz: { label: "Blitz", blurb: "Sharper finish. Expected ~20m of sudden-death after the minimum.", meanAfterMin: 20 * MINUTE, epochMs: 3e4 },
-  marathon: { label: "Marathon", blurb: "Long war. Expected ~90m of sudden-death after the minimum.", meanAfterMin: 90 * MINUTE, epochMs: 2 * MINUTE }
+  classic: { label: "Classic", blurb: "Balanced finish: the final stretch lasts about 10% of the battle on average.", meanAfterMin: 45 * MINUTE, epochMs: MINUTE, share: 0.1 },
+  blitz: { label: "Blitz", blurb: "Sharp finish: the final stretch is short (about 5% of the battle).", meanAfterMin: 20 * MINUTE, epochMs: 3e4, share: 0.05 },
+  marathon: { label: "Marathon", blurb: "Long finish: the final stretch lasts about 20% of the battle.", meanAfterMin: 90 * MINUTE, epochMs: 2 * MINUTE, share: 0.2 }
 };
+var DURATIONS = [
+  { ms: HOUR, label: "1 hour" },
+  { ms: 3 * HOUR, label: "3 hours" },
+  { ms: 6 * HOUR, label: "6 hours" },
+  { ms: 12 * HOUR, label: "12 hours" },
+  { ms: DAY, label: "1 day" },
+  { ms: 3 * DAY, label: "3 days" },
+  { ms: 7 * DAY, label: "1 week" },
+  { ms: 14 * DAY, label: "2 weeks" },
+  { ms: 30 * DAY, label: "1 month" },
+  { ms: 90 * DAY, label: "3 months" },
+  { ms: 180 * DAY, label: "6 months" },
+  { ms: 365 * DAY, label: "1 year" }
+];
+function epochFor(type, minDurationMs) {
+  if (minDurationMs <= DAY) return BATTLE_TYPES[type].epochMs;
+  if (minDurationMs <= 7 * DAY) return 5 * MINUTE;
+  if (minDurationMs <= 31 * DAY) return 15 * MINUTE;
+  return HOUR;
+}
+function sampleEveryMs(rules) {
+  return rules.randomEnd.minDurationMs <= DAY ? MINUTE : rules.randomEnd.epochMs;
+}
 var DEFAULT_SPLIT = { winnerLiquidity: 0.5, holderRewards: 0.25, platform: 0.25 };
 var DRAND_QUICKNET = {
   chainHash: "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
@@ -152,14 +176,18 @@ var DRAND_QUICKNET = {
 function makeRules(opts = {}) {
   const type = opts.type ?? "classic";
   const t = BATTLE_TYPES[type];
+  const minDurationMs = Math.max(HOUR, opts.minDurationMs ?? HOUR);
+  const epochMs = epochFor(type, minDurationMs);
+  const meanAfterMin = Math.max(t.meanAfterMin, minDurationMs * t.share);
+  const long = minDurationMs > DAY;
   return {
     version: "battle-rules/2.0",
     type,
     randomEnd: {
-      minDurationMs: Math.max(HOUR, opts.minDurationMs ?? HOUR),
-      epochMs: t.epochMs,
-      hazardPerEpoch: hazardFor(t.epochMs, t.meanAfterMin),
-      maxDurationMs: 6 * HOUR,
+      minDurationMs,
+      epochMs,
+      hazardPerEpoch: hazardFor(epochMs, meanAfterMin),
+      maxDurationMs: minDurationMs <= 3 * HOUR ? 6 * HOUR : minDurationMs + 4 * meanAfterMin,
       beacon: `drand quicknet ${DRAND_QUICKNET.chainHash.slice(0, 12)}\u2026 (3s rounds)`
     },
     weights: { performance: 0.6, holderGrowth: 0.2, marketQuality: 0.2 },
@@ -168,7 +196,7 @@ function makeRules(opts = {}) {
     rewardSplit: opts.split ?? DEFAULT_SPLIT,
     dataSources: {
       prices: "DexScreener \u2014 highest-liquidity pool, sampled every minute",
-      trades: "GeckoTerminal \u2014 pool trades (latest 300 per minute)",
+      trades: long ? "GeckoTerminal \u2014 pool trades (latest 300 per poll, every few minutes); market quality uses the last 7 days of trades" : "GeckoTerminal \u2014 pool trades (latest 300 per minute)",
       holders: "Birdeye token overview; if unavailable for either token, Holder Growth is neutral (50/50)",
       randomness: "drand quicknet public beacon"
     },
@@ -374,7 +402,7 @@ function rulesValid(r) {
     const rebuilt = makeRules({ type: r.type, minDurationMs: r.randomEnd.minDurationMs, split: r.rewardSplit });
     const s = r.rewardSplit;
     const splitOk = [s.winnerLiquidity, s.holderRewards, s.platform].every((x) => x >= 0 && x <= 1) && Math.abs(s.winnerLiquidity + s.holderRewards + s.platform - 1) < 1e-6;
-    return splitOk && r.randomEnd.minDurationMs <= 3 * 36e5 && canonical(rebuilt) === canonical(r);
+    return splitOk && DURATIONS.some((d) => d.ms === r.randomEnd.minDurationMs) && canonical(rebuilt) === canonical(r);
   } catch {
     return false;
   }
@@ -428,7 +456,7 @@ async function updateLive(db, log) {
   const mk = await markets(battles.flatMap((b) => [b.ta, b.tb]));
   await syncPairs(db, battles.flatMap((b) => [b.ta, b.tb]), mk);
   const now = Date.now();
-  let tradeCalls = 0;
+  const pollIds = new Set(battles.filter((b) => now - (b.state?.lastTradesPoll ?? 0) >= (b.rules.randomEnd.minDurationMs > DAY ? 5 * MIN : 0)).sort((x, y) => (x.state?.lastTradesPoll ?? 0) - (y.state?.lastTradesPoll ?? 0)).slice(0, 11).map((b) => b.id));
   for (const b of battles) {
     try {
       const A = mk.get(b.token_a), B = mk.get(b.token_b);
@@ -442,9 +470,9 @@ async function updateLive(db, log) {
       const twB = b.tw_acc_b + Math.log(B.priceUsd / b.start_price_b) * dt;
       const twT = b.tw_time_ms + dt;
       const prevState = b.state ?? {};
+      if (pollIds.has(b.id)) prevState.lastTradesPoll = now;
       for (const [tok, side] of [[b.ta, "a"], [b.tb, "b"]]) {
-        if (tradeCalls >= 26) break;
-        tradeCalls++;
+        if (!pollIds.has(b.id)) break;
         try {
           const rows = (await poolTrades(tok.pair_address, tok.mint)).filter((t) => t.ts >= started);
           if (rows.length) {
@@ -460,7 +488,8 @@ async function updateLive(db, log) {
           log.push(`#${b.number} trades ${tok.symbol}: ${e}`);
         }
       }
-      const { data: trades } = await db.from("battle_trades").select("token, wallet, side, usd, ts, flagged").eq("battle_id", b.id).limit(2e4);
+      const since = b.rules.randomEnd.minDurationMs > DAY ? Math.max(started, now - 7 * DAY) : started;
+      const { data: trades } = await db.from("battle_trades").select("token, wallet, side, usd, ts, flagged").eq("battle_id", b.id).gte("ts", new Date(since).toISOString()).order("ts", { ascending: false }).limit(2e4);
       const sideStats = async (tok) => {
         const list = (trades ?? []).filter((t) => t.token === tok.mint);
         const flaggedWallets = new Set(list.filter((t) => t.flagged).map((t) => t.wallet));
@@ -536,20 +565,23 @@ async function updateLive(db, log) {
         }
       }
       state.holderMilestone = hm;
-      await db.from("battle_snapshots").insert({
-        battle_id: b.id,
-        t: new Date(now).toISOString(),
-        price_a: A.priceUsd,
-        price_b: B.priceUsd,
-        mcap_a: A.mcapUsd,
-        mcap_b: B.mcapUsd,
-        liq_a: A.liqUsd,
-        liq_b: B.liqUsd,
-        holders_a: A.holders,
-        holders_b: B.holders,
-        score_a: scA.total,
-        score_b: scB.total
-      });
+      if (now - (prevState.lastSnapAt ?? 0) >= sampleEveryMs(b.rules) - 5e3) {
+        state.lastSnapAt = now;
+        await db.from("battle_snapshots").insert({
+          battle_id: b.id,
+          t: new Date(now).toISOString(),
+          price_a: A.priceUsd,
+          price_b: B.priceUsd,
+          mcap_a: A.mcapUsd,
+          mcap_b: B.mcapUsd,
+          liq_a: A.liqUsd,
+          liq_b: B.liqUsd,
+          holders_a: A.holders,
+          holders_b: B.holders,
+          score_a: scA.total,
+          score_b: scB.total
+        });
+      }
       await db.from("battles").update({ tw_acc_a: twA, tw_acc_b: twB, tw_time_ms: twT, last_sample_at: new Date(now).toISOString(), state }).eq("id", b.id);
       await runEndChecks(db, b, started, now, { A, B, scA, scB, sa, sb }, log);
     } catch (e) {
@@ -606,6 +638,89 @@ async function finalize(db, b, at, check, hitCap, s, log) {
   await feed(db, b.id, "lead", `\u{1F3C6} BATTLE OVER \u2014 $${w.symbol} wins`, winner);
   log.push(`ended #${b.number}: ${w.symbol} wins`);
   if (b.tournament_id) await advanceTournament(db, b, winner);
+}
+var SOL_MINT = "So11111111111111111111111111111111111111112";
+var minLiquidity = () => Number(env("MIN_LIQUIDITY_USD") ?? 1e4);
+var hueOf = (mint) => {
+  let h = 0;
+  for (const c of mint) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return h;
+};
+async function discoverPumpCoins(db, log) {
+  const min = minLiquidity();
+  const found = /* @__PURE__ */ new Map();
+  for (const dex of ["pump-fun", "pumpswap"]) {
+    for (const page of [1, 2]) {
+      try {
+        const j = await fetchJson(`https://api.geckoterminal.com/api/v2/networks/solana/dexes/${dex}/pools?page=${page}&sort=h24_volume_usd_desc`, { headers: { accept: "application/json" } });
+        for (const p of j.data ?? []) {
+          const mint = String(p.relationships?.base_token?.data?.id ?? "").replace(/^solana_/, "");
+          const reserve = +(p.attributes?.reserve_in_usd ?? 0);
+          if (mint && mint !== SOL_MINT && reserve >= min) found.set(mint, Math.max(reserve, found.get(mint) ?? 0));
+        }
+      } catch (e) {
+        log.push(`discover ${dex} p${page}: ${e}`);
+      }
+    }
+  }
+  let added = 0;
+  if (found.size) {
+    const { data: existing } = await db.from("tokens").select("mint").in("mint", [...found.keys()]);
+    const have = new Set((existing ?? []).map((r) => r.mint));
+    const fresh = [...found.keys()].filter((m) => !have.has(m)).slice(0, 60);
+    for (let i = 0; i < fresh.length; i += 30) {
+      const chunk = fresh.slice(i, i + 30);
+      try {
+        const pairs = await fetchJson(`https://api.dexscreener.com/tokens/v1/solana/${chunk.join(",")}`);
+        const rows = chunk.flatMap((mint) => {
+          const p = pairs.filter((x) => x.baseToken?.address === mint).sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0];
+          if (!p || Math.max(p.liquidity?.usd ?? 0, found.get(mint) ?? 0) < min) return [];
+          const soc = Object.fromEntries((p.info?.socials ?? []).map((x) => [x.type === "twitter" ? "x" : x.type, x.url]));
+          return [{
+            mint,
+            symbol: String(p.baseToken.symbol ?? "").slice(0, 20),
+            name: String(p.baseToken.name ?? "").slice(0, 60),
+            logo_url: p.info?.imageUrl ?? null,
+            pair_address: p.pairAddress,
+            dex_id: p.dexId,
+            hue: hueOf(mint),
+            description: null,
+            socials: { website: p.info?.websites?.[0]?.url, ...soc },
+            listed_by: "auto:pump.fun"
+          }];
+        });
+        if (rows.length) {
+          const { error } = await db.from("tokens").upsert(rows, { onConflict: "mint", ignoreDuplicates: true });
+          if (error) log.push(`discover insert: ${error.message}`);
+          else added += rows.length;
+        }
+      } catch (e) {
+        log.push(`discover metadata: ${e}`);
+      }
+    }
+  }
+  let removed = 0;
+  const { data: autos } = await db.from("tokens").select("mint").eq("listed_by", "auto:pump.fun").lt("listed_at", new Date(Date.now() - DAY).toISOString()).limit(60);
+  if (autos?.length) {
+    const mints = autos.map((r) => r.mint);
+    const { data: used } = await db.from("battles").select("token_a, token_b").or(`token_a.in.(${mints.join(",")}),token_b.in.(${mints.join(",")})`);
+    const busy = new Set((used ?? []).flatMap((b) => [b.token_a, b.token_b]));
+    const idle = mints.filter((m) => !busy.has(m));
+    for (let i = 0; i < idle.length; i += 30) {
+      try {
+        const chunk = idle.slice(i, i + 30);
+        const pairs = await fetchJson(`https://api.dexscreener.com/tokens/v1/solana/${chunk.join(",")}`);
+        const drained = chunk.filter((m) => Math.max(0, ...pairs.filter((x) => x.baseToken?.address === m).map((x) => x.liquidity?.usd ?? 0)) < min / 2);
+        if (drained.length) {
+          await db.from("tokens").delete().in("mint", drained);
+          removed += drained.length;
+        }
+      } catch (e) {
+        log.push(`prune: ${e}`);
+      }
+    }
+  }
+  if (added || removed) log.push(`pump.fun: listed ${added}, removed ${removed}`);
 }
 async function createMatchBattle(db, t, round, slot, a, bb, start) {
   const rules = t.rules;
@@ -722,5 +837,6 @@ Deno.serve(async (req) => {
   await step("start", () => startBattles(db, log));
   await step("live", () => updateLive(db, log));
   await step("swaps", () => verifySwaps(db, log));
+  if ((/* @__PURE__ */ new Date()).getUTCMinutes() % 10 === 0 || body.action === "discover") await step("discover", () => discoverPumpCoins(db, log));
   return Response.json({ ok: true, log });
 });

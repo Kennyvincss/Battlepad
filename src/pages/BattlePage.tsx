@@ -1,6 +1,6 @@
 import { Safe } from '../components/ErrorBoundary';
 import { useEffect, useState, type CSSProperties } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import type { Battle, BattleDetail, TokenId, TradeSide } from '../data/types';
 import { useBattleDetail, useData, useEngineEvent } from '../data/DataContext';
 import { ago, duration, num, pct, price as fmtPrice, short, solscanTx, usd } from '../lib/format';
@@ -10,7 +10,8 @@ import { PriceChart } from '../components/PriceChart';
 import { TradePanel } from '../components/TradePanel';
 import { ScoreTug } from '../components/BattleCard';
 import { EndProof, IntegrityAlertBanner, IntegrityPanel, LoyaltyCard, RewardSplitBar, RulesModal } from '../components/BattleInfo';
-import { Flash, InfoButton, Modal, SourceTag, StreakBadge, TokenLogo, sideColor, sideStyle, useMediaQuery } from '../components/ui';
+import { Flash, InfoButton, Modal, PnlText, SourceTag, StreakBadge, TokenLogo, sideColor, sideStyle, useMediaQuery } from '../components/ui';
+import { useUi } from '../components/AppState';
 import { ResultPanel, ResultReveal } from '../components/Result';
 import { BattleChat } from '../components/Chat';
 import { BattleTreasuryCard } from '../components/Treasury';
@@ -26,8 +27,7 @@ export function BattlePage() {
   const [reveal, setReveal] = useState(false);
   const [leadFlash, setLeadFlash] = useState<{ k: number; leader: TokenId } | null>(null);
   const [sheet, setSheet] = useState<{ token: TokenId; side: TradeSide } | null>(null);
-  const [tab, setTab] = useState<Section>('trade');
-  const nav = useNavigate();
+  const [tab, setTab] = useState<MoreTab>('trades');
   const isMobile = useMediaQuery('(max-width: 900px)');
 
   useEngineEvent((ev) => {
@@ -42,7 +42,7 @@ export function BattlePage() {
     return () => clearTimeout(t);
   }, [leadFlash]);
 
-  if (!battle) return <div className="page"><div className="panel empty">Battle not found. <Link className="link" to="/">Back to battles</Link></div></div>;
+  if (!battle) return <div className="page"><div className="panel empty">{e.ready ? <>Battle not found. <Link className="link" to="/">Back to battles</Link></> : 'Loading battle…'}</div></div>;
 
   const A = sideView(e, battle, 'a');
   const B = sideView(e, battle, 'b');
@@ -52,46 +52,75 @@ export function BattlePage() {
   const upcoming = !live && !ended;
   const alert = live ? recentAlert(e, detail) : undefined;
   const tokens = [A.token, B.token];
-
   const t = e.tournamentOf(battle);
   const match = e.matchOf(battle);
-  const go = (sec: Section) => {
-    if (sec === 'spectate' && !isMobile) { nav(`/battle/${battle.id}/watch`); return; }
-    setTab(sec);
-    if (!isMobile) document.getElementById(`sec-${sec}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-  const show = (sec: Section) => !isMobile || tab === sec;
+  const canEnd = elapsed >= battle.rules.randomEnd.minDurationMs;
 
-  const infoPanels = (
-    <>
-      <LoyaltyCard battle={battle} />
-      <BattleTreasuryCard battle={battle} detail={detail} />
-      <IntegrityPanel battle={battle} detail={detail} />
-      <RecordsPanel battle={battle} />
-    </>
+  const tabs: [MoreTab, string][] = [
+    ['trades', '💱 Activity'],
+    ['chat', `💬 Chat${detail?.chat.length ? ` (${detail.chat.length})` : ''}`],
+    ['score', '⚖️ Score details'],
+    ['coins', '📊 Coin stats'],
+    ['fair', '🛡 Prize pot & fairness'],
+  ];
+
+  // Everything beyond the essentials lives in tabs, so the page stays readable.
+  const moreTabs = (
+      <section className="panel more-tabs" style={{ marginTop: isMobile ? 14 : 0 }}>
+        <div className="tabs" style={{ margin: 0, padding: '0 8px' }}>
+          {tabs.map(([k, l]) => <button key={k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>{l}</button>)}
+        </div>
+        <div className="more-body">
+          {tab === 'trades' && <Safe name="Live trades"><ActivityTabs battle={battle} detail={detail} /></Safe>}
+          {tab === 'chat' && <Safe name="Chat"><BattleChat battle={battle} detail={detail} height={isMobile ? '58vh' : 420} /></Safe>}
+          {tab === 'score' && <Safe name="Score details"><ScoreSection battle={battle} detail={detail} A={A} B={B} onRules={() => setRulesOpen(true)} /></Safe>}
+          {tab === 'coins' && (
+            <Safe name="Coin stats">
+              <div className="grid grid-2">
+                <SideCard v={A} battle={battle} align="left" />
+                <SideCard v={B} battle={battle} align="right" />
+              </div>
+              <div style={{ marginTop: 14 }}><RecordsPanel battle={battle} /></div>
+            </Safe>
+          )}
+          {tab === 'fair' && (
+            <Safe name="Prize pot & fairness">
+              <div className="grid grid-2" style={{ alignItems: 'start' }}>
+                <div className="col" style={{ gap: 14 }}>
+                  <BattleTreasuryCard battle={battle} detail={detail} />
+                  <LoyaltyCard battle={battle} />
+                </div>
+                <div className="col" style={{ gap: 14 }}>
+                  <IntegrityPanel battle={battle} detail={detail} />
+                  <EndProof battle={battle} detail={detail} />
+                  <button className="btn btn-block" onClick={() => setRulesOpen(true)}>📜 Read the full battle rules</button>
+                </div>
+              </div>
+            </Safe>
+          )}
+        </div>
+      </section>
   );
 
   return (
     <div className="page battle-page" style={{ '--ha': A.token.hue, '--hb': B.token.hue } as CSSProperties}>
-      {/* --------------------------------------------------- header strip */}
+      {/* ------------------------------------------------ top bar */}
       <div className="battle-strip">
         <div className="row wrap" style={{ gap: 10 }}>
           <Link to="/" className="btn btn-ghost btn-sm">← Battles</Link>
           <span className="battle-strip-title">
-            {live && <><span className="live-dot" />⚔️ LIVE BATTLE</>}
-            {ended && <>🏁 BATTLE OVER</>}
-            {upcoming && <>🗓 UPCOMING BATTLE</>}
+            {live && <span className="live-dot" />}${A.token.ticker} <span className="dim">vs</span> ${B.token.ticker}
           </span>
-          <span className="pill mono">#{battle.number}</span>
-          <span className="pill hide-mobile">{BATTLE_TYPES[battle.rules.type].label}</span>
-          <span className="pill pill-up hide-mobile" title="Rules are locked and hashed into the public commitment">🔒 Rules locked</span>
-          <SourceTag text="Live · Solana" />
+          {live && <span className="pill pill-live">Live</span>}
+          {upcoming && <span className="pill pill-upcoming">Starting</span>}
+          {ended && <span className="pill pill-ended">Ended</span>}
+          {live && canEnd && <span className="pill pill-sd" title="Past the minimum length: it can end at any minute">🎲 Final stretch</span>}
         </div>
         <div className="row wrap" style={{ gap: 8 }}>
-          {t && <Link to={`/tournament/${t.id}`} className="btn btn-sm btn-tourney">🏆 View Tournament{match ? ` · ${roundName(t, match.round)}` : ''}</Link>}
-          {ended && <button className="btn btn-sm" onClick={() => setReveal(true)}>▶ Replay reveal</button>}
-          <button className="btn btn-sm" onClick={() => setRulesOpen(true)}>📜 Battle Rules</button>
-          {!upcoming && <Link to={`/battle/${battle.id}/watch`} className="btn btn-sm btn-watch">👁 WATCH BATTLE <span className="mono">{num(detail?.watchers ?? 0, false)}</span></Link>}
+          {t && <Link to={`/tournament/${t.id}`} className="btn btn-sm btn-tourney">🏆 {t.name}{match ? ` · ${roundName(t, match.round)}` : ''}</Link>}
+          {ended && <button className="btn btn-sm" onClick={() => setReveal(true)}>▶ Replay result</button>}
+          <button className="btn btn-sm" onClick={() => setRulesOpen(true)}>📜 Rules</button>
+          {!upcoming && <Link to={`/battle/${battle.id}/watch`} className="btn btn-sm btn-watch">👁 Watch <span className="mono">{num(detail?.watchers ?? 0, false)}</span></Link>}
         </div>
       </div>
 
@@ -100,90 +129,58 @@ export function BattlePage() {
           <span className="battle-guide-i">👉</span>
           <span className="grow">
             {upcoming
-              ? <>This battle hasn't started yet. Once it does, buying <b>${A.token.ticker}</b> or <b>${B.token.ticker}</b> helps that side's score. It runs at least {duration(battle.rules.randomEnd.minDurationMs)}, then ends by surprise.</>
-              : <>Buy <b>${A.token.ticker}</b> or <b>${B.token.ticker}</b> to push that side's Battle Score up. Whoever is ahead when the battle ends wins. {elapsed >= battle.rules.randomEnd.minDurationMs ? <b>It can end any minute now.</b> : <>It can't end for another <b>{duration(battle.rules.randomEnd.minDurationMs - elapsed)}</b>.</>}</>}
+              ? <>This battle starts {battle.scheduledStart <= e.now ? 'within a minute' : `in ${duration(battle.scheduledStart - e.now)}`}. Then buying <b>${A.token.ticker}</b> or <b>${B.token.ticker}</b> helps that side. It runs at least {duration(battle.rules.randomEnd.minDurationMs)}, then ends by surprise.</>
+              : <>Buy <b>${A.token.ticker}</b> or <b>${B.token.ticker}</b> to help that side. Whoever has the higher score when the battle ends wins. {canEnd ? <b>It can end any minute now.</b> : <>It can't end for another <b>{duration(battle.rules.randomEnd.minDurationMs - elapsed)}</b>.</>}</>}
           </span>
-          {!upcoming && <button className="btn btn-primary btn-sm" onClick={() => go('trade')}>Trade now ↓</button>}
         </div>
       )}
 
       {alert && <IntegrityAlertBanner ev={alert} onDetails={() => setIntegOpen(true)} />}
-
       {ended && battle.final && <Safe name="The result"><ResultPanel battle={battle} detail={detail} /></Safe>}
 
-      {/* --------------------------------------------------- VS hero */}
-      <section className={`hero ${ended ? 'hero-ended' : ''}`}>
-        <div className="hero-bg" />
-        <SideCard v={A} battle={battle} align="left" />
-        <div className="hero-center">
-          <div className="hero-vs">VS</div>
-          <DurationBlock battle={battle} elapsed={elapsed} detail={detail} />
-          {!upcoming && <LeaderBlock battle={battle} A={A} B={B} />}
-          {leadFlash && (
-            <div key={leadFlash.k} className="lead-flash" style={sideStyle(e.tokens[leadFlash.leader]?.hue ?? 200)}>
-              ⚡ LEAD CHANGE · {e.tokens[leadFlash.leader]?.ticker}
-            </div>
-          )}
-        </div>
-        <SideCard v={B} battle={battle} align="right" />
-      </section>
+      {/* ------------------------------------------------ scoreboard */}
+      <Safe name="The scoreboard">
+        <section className="sboard">
+          <SideMini v={A} battle={battle} align="left" />
+          <div className="sboard-mid">
+            <DurationBlock battle={battle} elapsed={elapsed} detail={detail} />
+            {!upcoming && A.score !== null && B.score !== null && (
+              <div className="sboard-lead">
+                <ScoreTug a={A.score} b={B.score} hueA={A.token.hue} hueB={B.token.hue} height={10} showLabels={false} />
+                <div className="sboard-lead-txt">
+                  {ended ? <>🏆 <b>${(A.position === 1 ? A : B).token.ticker}</b> won by {Math.abs(A.score - B.score).toFixed(1)} pts</>
+                    : <><b>${(A.position === 1 ? A : B).token.ticker}</b> is ahead by {Math.abs(A.score - B.score).toFixed(1)} pts</>}
+                </div>
+              </div>
+            )}
+            {leadFlash && (
+              <div key={leadFlash.k} className="lead-flash" style={sideStyle(e.tokens[leadFlash.leader]?.hue ?? 200)}>
+                ⚡ LEAD CHANGE · {e.tokens[leadFlash.leader]?.ticker}
+              </div>
+            )}
+          </div>
+          <SideMini v={B} battle={battle} align="right" />
+        </section>
+      </Safe>
 
-      {/* --------------------------------------------------- score */}
-      {!upcoming && <Safe name="The Battle Score"><ScoreSection battle={battle} detail={detail} A={A} B={B} onRules={() => setRulesOpen(true)} /></Safe>}
       {upcoming && <UpcomingInfo battle={battle} onRules={() => setRulesOpen(true)} />}
 
-      {/* --------------------------------------------------- section nav: TRADE | SPECTATE | CHAT | BATTLE INFO */}
-      <nav className="sec-nav" aria-label="Battle sections">
-        {([['trade', '💱 Trade'], ['spectate', '👁 Spectate'], ['chat', '💬 Chat'], ['info', 'ℹ️ Battle info']] as [Section, string][]).map(([k, l]) => (
-          <button key={k} className={`sec-tab ${isMobile && tab === k ? 'active' : ''}`} onClick={() => go(k)}>
-            {l}
-            {k === 'chat' && <span className="mono dim"> {num(detail?.watchers ?? 0, false)}</span>}
-          </button>
-        ))}
-      </nav>
-
-      {/* --------------------------------------------------- main grid */}
-      {!isMobile ? (
-        <div className="battle-grid">
-          <div className="battle-main">
-            <div id="sec-trade" className="anchor" />
-            <Safe name="The chart"><PriceChart battle={battle} height={380} /></Safe>
-            <div id="sec-chat" className="anchor" />
-            <div className="duo">
-              <Safe name="Live trades"><ActivityTabs battle={battle} detail={detail} /></Safe>
-              <Safe name="Chat"><BattleChat battle={battle} detail={detail} height={372} /></Safe>
-            </div>
-            <Safe name="The random-end log"><EndProof battle={battle} detail={detail} /></Safe>
-          </div>
-          <aside className="battle-side">
-            <Safe name="Trading"><TradePanel battle={battle} tokens={tokens} /></Safe>
-            <div id="sec-info" className="anchor" />
-            <Safe name="Battle info">{infoPanels}</Safe>
-          </aside>
+      {/* ------------------------------------------------ chart + trade */}
+      <div className="battle-grid" style={{ marginTop: 14 }}>
+        <div className="battle-main">
+          <Safe name="The chart"><PriceChart battle={battle} height={isMobile ? 300 : 420} /></Safe>
+          {!isMobile && moreTabs}
         </div>
-      ) : (
-        <div className="battle-mobile">
-          {show('trade') && (
-            <>
-              <Safe name="The chart"><PriceChart battle={battle} height={280} /></Safe>
-              <div id="trade"><Safe name="Trading"><TradePanel battle={battle} tokens={tokens} /></Safe></div>
-              <Safe name="Live trades"><ActivityTabs battle={battle} detail={detail} /></Safe>
-            </>
-          )}
-          {show('spectate') && <Safe name="Spectate"><SpectatePreview battle={battle} detail={detail} /></Safe>}
-          {show('chat') && <Safe name="Chat"><BattleChat battle={battle} detail={detail} height="58vh" /></Safe>}
-          {show('info') && (
-            <>
-              <Safe name="Battle info">{infoPanels}</Safe>
-              <Safe name="The random-end log"><EndProof battle={battle} detail={detail} /></Safe>
-              <button className="btn btn-block" onClick={() => setRulesOpen(true)}>📜 Full battle rules</button>
-            </>
-          )}
-        </div>
-      )}
+        <aside className="battle-side">
+          {!isMobile && <div id="trade"><Safe name="Trading"><TradePanel battle={battle} tokens={tokens} /></Safe></div>}
+          <Safe name="Your position"><PositionCard battle={battle} /></Safe>
+        </aside>
+      </div>
 
-      {/* --------------------------------------------------- mobile sticky trade bar */}
-      {isMobile && tab === 'trade' && (
+      {isMobile && moreTabs}
+
+      {/* ------------------------------------------------ mobile: sticky buy bar + sheet */}
+      {isMobile && !ended && (
         <div className="sticky-trade">
           {tokens.map((tk) => (
             <button key={tk.id} className="btn btn-side-solid btn-lg grow" style={sideStyle(tk.hue)} onClick={() => setSheet({ token: tk.id, side: 'buy' })}>
@@ -218,36 +215,70 @@ export function BattlePage() {
   );
 }
 
-type Section = 'trade' | 'spectate' | 'chat' | 'info';
+type MoreTab = 'trades' | 'chat' | 'score' | 'coins' | 'fair';
 
-/** Mobile "Spectate" tab: a compact live event view with a link to full spectator mode. */
-function SpectatePreview({ battle, detail }: { battle: Battle; detail?: BattleDetail }) {
+/** One side of the scoreboard: the few numbers a newcomer needs. */
+function SideMini({ v, battle, align }: { v: SideView; battle: Battle; align: 'left' | 'right' }) {
   const e = useData();
-  const stream = [...(detail?.feed ?? [])].reverse().slice(0, 20);
+  const upcoming = battle.status === 'scheduled' || battle.status === 'pending';
+  const ended = battle.status === 'ended';
+  const isWinner = ended && battle.winner === v.token.id;
+  const myArmy = e.wallet.connected && e.armies[battle.id] === v.token.id;
+  const state = upcoming ? null : ended ? (isWinner ? '🏆 Winner' : 'Lost') : v.score === null ? 'Scoring…' : v.position === 1 ? '▲ Winning' : '▼ Behind';
+  return (
+    <div className={`smini ${align} ${!upcoming && v.position === 1 && v.score !== null ? 'lead' : ''}`} style={sideStyle(v.token.hue)}>
+      <div className="smini-id">
+        <TokenLogo token={v.token} size={52} />
+        <div style={{ minWidth: 0 }}>
+          <Link to={`/token/${v.token.id}`} className="smini-ticker">${v.token.ticker}</Link>
+          <div className="smini-chg mono">
+            {v.change !== null ? <span className={v.change >= 0 ? 'up' : 'down'}>{v.change >= 0 ? '▲' : '▼'} {pct(v.change)}</span> : <span className="dim">—</span>}
+            <span className="dim"> {upcoming ? '24h' : 'since start'}</span>
+          </div>
+        </div>
+      </div>
+      <div className="smini-score">
+        <span className="mono smini-pts">{v.score !== null ? <Flash value={v.score}>{v.score.toFixed(1)}</Flash> : '—'}</span>
+        {state && <span className={`smini-state ${v.position === 1 ? 'up' : 'down'}`}>{state}</span>}
+      </div>
+      <div className="smini-sub mono">{usd(v.mcapUsd)} mkt cap{myArmy && <span className="pill pill-up" style={{ marginLeft: 6, height: 18, fontSize: 9 }}>Your side</span>}</div>
+    </div>
+  );
+}
+
+/** What the connected wallet holds in this battle and its live PnL. */
+function PositionCard({ battle }: { battle: Battle }) {
+  const e = useData();
+  const ui = useUi();
+  const ids = [battle.a.tokenId, battle.b.tokenId];
+  const rows = ids.map((id) => ({ t: e.token(id), held: e.wallet.tokens[id]?.amount ?? 0, p: e.pnl(id), px: e.markets[id]?.priceUsd })).filter((r) => r.held > 0 || r.p);
   return (
     <div className="panel">
-      <div className="panel-head">
-        <span className="panel-title">👁 Spectate</span>
-        <span className="spec-watch"><span className="online-dot" /><b className="mono">{num(detail?.watchers ?? 0, false)}</b> WATCHING</span>
-      </div>
+      <div className="panel-head"><span className="panel-title">💼 Your position</span>{rows.length > 0 && <span className="dim" style={{ fontSize: 11 }}>Live</span>}</div>
       <div className="panel-pad col" style={{ gap: 10 }}>
-        <Link to={`/battle/${battle.id}/watch`} className="btn btn-watch btn-lg btn-block">👁 WATCH BATTLE — full spectator mode</Link>
-        <div className="pbp" style={{ maxHeight: 'none' }}>
-          {stream.length === 0 && <div className="empty">Live moments appear here as the battle unfolds.</div>}
-          {stream.map((f) => {
-            const tk = f.tokenId ? e.tokens[f.tokenId] : undefined;
-            return (
-              <div key={f.id} className={`pbp-item k-${f.kind}`} style={tk ? sideStyle(tk.hue) : undefined}>
-                <span className="grow">{f.text}</span>
-                <span className="dim mono" style={{ fontSize: 10.5 }}>{ago(e.now - f.t)}</span>
-              </div>
-            );
-          })}
-        </div>
+        {!e.wallet.connected && <><div className="muted" style={{ fontSize: 13 }}>Connect a wallet to trade and see your profit or loss here.</div><button className="btn btn-primary btn-sm" style={{ alignSelf: 'flex-start' }} onClick={ui.openWallet}>Connect wallet</button></>}
+        {e.wallet.connected && rows.length === 0 && <div className="muted" style={{ fontSize: 13 }}>You don't hold either coin yet. Buy one to back that side; your profit or loss shows up here live.</div>}
+        {rows.map(({ t, held, p, px }) => (
+          <div key={t.id} className="pos-row" style={sideStyle(t.hue)}>
+            <div className="spread">
+              <span className="row" style={{ gap: 8 }}><TokenLogo token={t} size={24} /><b>${t.ticker}</b></span>
+              <span className="mono" style={{ fontWeight: 700 }}>{px != null ? usd(held * px, { compact: false }) : '—'}</span>
+            </div>
+            <div className="spread" style={{ marginTop: 4 }}>
+              <span className="dim mono" style={{ fontSize: 11.5 }}>{num(held)} {t.ticker}</span>
+              {p ? <span className="row" style={{ gap: 6 }}><span className="dim" style={{ fontSize: 11.5 }}>PnL</span><PnlText usd={p.totalUsd} pct={p.pct} /></span> : <span className="dim" style={{ fontSize: 11.5 }} title="Bought outside BATTLE, so the cost is unknown">PnL n/a</span>}
+            </div>
+            {p && p.untrackedQty > 0 && <div className="dim" style={{ fontSize: 11, marginTop: 4 }}>{num(p.untrackedQty)} {t.ticker} bought elsewhere isn't included in PnL.</div>}
+          </div>
+        ))}
+        {rows.length > 0 && <div className="dim" style={{ fontSize: 11 }}>PnL counts trades you made on BATTLE (average cost), at live prices.</div>}
       </div>
     </div>
   );
 }
+
+
+/** Mobile "Spectate" tab: a compact live event view with a link to full spectator mode. */
 
 /* ======================================================================= */
 
@@ -336,7 +367,7 @@ export function DurationBlock({ battle, elapsed, detail }: { battle: Battle; ela
   if (!live && !ended) {
     return (
       <div className="dur">
-        <div className="label">{battle.status === 'pending' ? 'Proposed start in' : 'Starts in'}</div>
+        <div className="label">Starts in</div>
         <div className="dur-v mono">{duration(Math.max(0, battle.scheduledStart - e.now), true)}</div>
         <div className="dur-min">Runs at least {duration(min)}</div>
         <div className="dim" style={{ fontSize: 11.5, marginTop: 6 }}>Then it can end at any minute (a fair, public random draw).</div>
@@ -481,14 +512,12 @@ export function ScoreTimeline({ battle, detail }: { battle: Battle; detail?: Bat
 }
 
 function UpcomingInfo({ battle, onRules }: { battle: Battle; onRules: () => void }) {
-  const e = useData();
-  const challenger = e.token(battle.a.tokenId);
   return (
     <section className="panel panel-pad" style={{ marginTop: 16 }}>
       <div className="grid grid-3" style={{ gap: 16 }}>
         <div className="stat"><span className="stat-l">Battle type</span><span className="stat-v" style={{ fontSize: 18 }}>{BATTLE_TYPES[battle.rules.type].label}</span><span className="dim" style={{ fontSize: 12 }}>{BATTLE_TYPES[battle.rules.type].blurb}</span></div>
-        <div className="stat"><span className="stat-l">Treasury split</span><span className="stat-v" style={{ fontSize: 18 }}>{Math.round(battle.rules.rewardSplit.winnerLiquidity * 100)} / {Math.round(battle.rules.rewardSplit.holderRewards * 100)} / {Math.round(battle.rules.rewardSplit.platform * 100)}</span><span className="dim" style={{ fontSize: 12 }}>Winner / holders / platform</span></div>
-        <div className="stat"><span className="stat-l">Challenger</span><span className="stat-v" style={{ fontSize: 18 }}>${challenger?.ticker}</span><span className="dim" style={{ fontSize: 12 }}>{battle.status === 'pending' ? 'Waiting for the opponent to accept' : 'Accepted · rules locked at start'}</span></div>
+        <div className="stat"><span className="stat-l">Prize pot split</span><span className="stat-v" style={{ fontSize: 18 }}>{Math.round(battle.rules.rewardSplit.winnerLiquidity * 100)} / {Math.round(battle.rules.rewardSplit.holderRewards * 100)} / {Math.round(battle.rules.rewardSplit.platform * 100)}</span><span className="dim" style={{ fontSize: 12 }}>Winner / holders / platform</span></div>
+        <div className="stat"><span className="stat-l">Length</span><span className="stat-v" style={{ fontSize: 18 }}>At least {duration(battle.rules.randomEnd.minDurationMs)}</span><span className="dim" style={{ fontSize: 12 }}>Then a surprise ending · rules locked at start</span></div>
       </div>
       {battle.challengeMessage && <p className="muted" style={{ fontStyle: 'italic', margin: '12px 0 0' }}>“{battle.challengeMessage}”</p>}
       <hr className="divider" />

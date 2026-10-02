@@ -4,7 +4,7 @@ import type { Battle, Quote, Token, TokenId, TradeSide } from '../data/types';
 import { useData } from '../data/DataContext';
 import { useUi } from './AppState';
 import { num, pct, price as fmtPrice, short, sol, solscanTx, usd } from '../lib/format';
-import { Modal, TokenLogo, sideColor, sideStyle } from './ui';
+import { Modal, PnlText, TokenLogo, sideColor, sideStyle } from './ui';
 
 const BUY_PRESETS = [0.1, 0.5, 1, 5];
 const SELL_PRESETS = [0.25, 0.5, 0.75, 1];
@@ -118,6 +118,16 @@ export function TradePanel({ battle, tokens, initialToken, initialSide = 'buy', 
           <button className={`trade-side sell ${side === 'sell' ? 'active' : ''}`} onClick={() => { setSide('sell'); setAmountStr(''); }}>Sell {token.ticker}</button>
         </div>
 
+        {(() => {
+          const p = e.wallet.connected ? e.pnl(tokenId) : null;
+          if (!p || (p.tracked <= 0 && !p.realizedUsd)) return null;
+          return (
+            <div className="trade-pnl">
+              <span>Your {token.ticker}: <b className="mono">{usd(p.valueUsd, { compact: false })}</b></span>
+              <span>PnL <PnlText usd={p.totalUsd} pct={p.pct} size="sm" /></span>
+            </div>
+          );
+        })()}
         <div className="trade-input-wrap">
           <div className="spread" style={{ marginBottom: 6 }}>
             <label className="label" htmlFor={`amt-${tokenId}`}>{side === 'buy' ? 'You pay' : 'You sell'}</label>

@@ -29,7 +29,7 @@ export function SourceTag({ text }: { text: string }) {
 export function StatusPill({ battle, elapsed, compact }: { battle: Battle; elapsed: number; compact?: boolean }) {
   if (battle.status === 'ended') return <span className="pill pill-ended">Ended</span>;
   if (battle.status === 'scheduled') return <span className="pill pill-upcoming">Upcoming</span>;
-  if (battle.status === 'pending') return <span className="pill pill-upcoming" title="The challenged token's creator hasn't accepted yet">Waiting for opponent</span>;
+  if (battle.status === 'pending') return <span className="pill pill-upcoming">Starting soon</span>;
   if (battle.status === 'declined' || battle.status === 'cancelled') return <span className="pill pill-ended">{battle.status}</span>;
   return (
     <span className="row" style={{ gap: 6 }}>
@@ -143,4 +143,17 @@ export function useMediaQuery(q: string) {
     return () => mq.removeEventListener('change', on);
   }, [q]);
   return m;
+}
+
+/** Signed USD amount with optional %, coloured green/red. */
+export function PnlText({ usd: v, pct: p, size = 'md' }: { usd: number | null | undefined; pct?: number | null; size?: 'sm' | 'md' | 'lg' }) {
+  if (v == null || !Number.isFinite(v)) return <span className="muted">—</span>;
+  const sign = v > 0 ? '+' : v < 0 ? '−' : '';
+  const abs = Math.abs(v);
+  const txt = abs >= 1000 ? `$${(abs / 1000).toFixed(abs >= 100_000 ? 0 : 1)}K` : `$${abs.toFixed(2)}`;
+  return (
+    <span className={`mono pnl pnl-${size} ${v > 0 ? 'up' : v < 0 ? 'down' : 'muted'}`}>
+      {sign}{txt}{p != null && Number.isFinite(p) && <span className="pnl-pct"> ({p >= 0 ? '+' : '−'}{Math.abs(p * 100).toFixed(1)}%)</span>}
+    </span>
+  );
 }

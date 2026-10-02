@@ -2,6 +2,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useData } from '../data/DataContext';
 import { ago, duration, num, pct, price as fmtPrice, short, usd } from '../lib/format';
 import { TradePanel } from '../components/TradePanel';
+import { isAutoListed } from '../lib/view';
 import { BattleCard } from '../components/BattleCard';
 import { SourceTag, StreakBadge, TokenLogo, sideStyle } from '../components/ui';
 
@@ -85,7 +86,7 @@ export function TokenPage() {
             <StreakBadge streak={r.streak} size="lg" />
             {active?.status === 'live' && <Link to={`/battle/${active.id}`} className="pill pill-live">In battle</Link>}
           </div>
-          <div className="muted" style={{ fontSize: 15, marginTop: 4 }}>{t.name} · listed by <Link className="link mono" to={`/creator/${t.listedBy}`}>{short(t.listedBy)}</Link></div>
+          <div className="muted" style={{ fontSize: 15, marginTop: 4 }}>{t.name} · {isAutoListed(t) ? <>auto-listed from pump.fun</> : <>listed by <Link className="link mono" to={`/creator/${t.listedBy}`}>{short(t.listedBy)}</Link></>}</div>
           {t.description && <p style={{ color: 'var(--text-2)', maxWidth: 640, margin: '10px 0 0' }}>{t.description}</p>}
           <div className="row wrap" style={{ gap: 14, marginTop: 10, fontSize: 12 }}>
             <a className="hash link" href={`https://solscan.io/token/${t.mint}`} target="_blank" rel="noopener noreferrer">Mint {short(t.mint, 6)} ↗</a>
@@ -96,7 +97,7 @@ export function TokenPage() {
           </div>
         </div>
         <div className="col" style={{ gap: 8, alignItems: 'flex-end' }}>
-          <Link to={`/create-battle?opponent=${t.id}`} className="btn btn-battle">⚔️ Challenge ${t.ticker}</Link>
+          <Link to={`/create-battle?opponent=${t.id}`} className="btn btn-battle">⚔️ Battle ${t.ticker}</Link>
           <SourceTag text="DexScreener · live" />
         </div>
       </div>

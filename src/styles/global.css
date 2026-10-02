@@ -339,3 +339,7 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .crash { border-color: #fecaca; background: #fffbfb; }
 .crash-page { margin: 24px auto; max-width: 720px; }
 .crash-msg { margin-top: 8px; font-size: 11.5px; color: var(--down); background: #fff1f2; border-radius: 8px; padding: 6px 8px; word-break: break-word; }
+.pnl { font-weight: 700; white-space: nowrap; }
+.pnl-sm { font-size: 12px; }
+.pnl-lg { font-size: 18px; }
+.pnl-pct { font-weight: 600; opacity: 0.85; }

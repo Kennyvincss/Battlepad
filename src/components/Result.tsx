@@ -132,7 +132,7 @@ export function ResultPanel({ battle, detail }: { battle: Battle; detail?: Battl
         <span className="label">What's next</span>
         <div className="row wrap" style={{ gap: 8 }}>
           {t && <Link to={`/tournament/${t.id}`} className="btn btn-tourney">🏆 {t.status === 'completed' ? `${t.name} results` : `Continue ${t.name}`}</Link>}
-          {nextOpp && <Link to={`/create-battle?token=${w.id}&opponent=${nextOpp.id}`} className="btn btn-battle">⚔️ Next challenge</Link>}
+          {nextOpp && <Link to={`/create-battle?token=${w.id}&opponent=${nextOpp.id}`} className="btn btn-battle">⚔️ Next battle</Link>}
           <Link to="/tournaments" className="btn">Tournaments</Link>
           <Link to={`/token/${w.id}`} className="btn">{w.ticker} battle record</Link>
         </div>

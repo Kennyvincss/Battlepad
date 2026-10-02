@@ -91,13 +91,14 @@ export function TreasuryPage() {
   const toUsd = (v: number) => (e.solUsd !== null ? usd(v * e.solUsd) : sol(v, 3));
   const ended = new Set(e.battles.filter((b) => b.status === 'ended').map((b) => b.id));
   const settled = list.filter((s) => s.battleId && ended.has(s.battleId)).reduce((s, x) => s + x.feeSol, 0);
-  const locked = total - settled;
+  const liveIds = new Set(e.battles.filter((b) => b.status === 'live').map((b) => b.id));
+  const locked = list.filter((s) => s.battleId && liveIds.has(s.battleId)).reduce((s, x) => s + x.feeSol, 0);
   const sp = { w: 0.5, h: 0.25, p: 0.25 };
   const byBattle = new Map<string, number>();
   list.forEach((s) => s.battleId && byBattle.set(s.battleId, (byBattle.get(s.battleId) ?? 0) + s.feeSol));
   const top = [...byBattle.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
   const tiles: [string, number, string, string][] = [
-    ['Total fees collected', total, 'Verified BATTLE swap fees across all battles', TREASURY_COLORS.fees],
+    ['Total fees collected', total, 'Verified BATTLE swap fees, in and outside battles', TREASURY_COLORS.fees],
     ['Allocated to winners', settled * sp.w, 'Liquidity support from ended battles (default 50%)', TREASURY_COLORS.winner],
     ['Allocated to holders', settled * sp.h, 'Battle Loyalty share of ended battles (default 25%)', TREASURY_COLORS.holders],
     ['Platform treasury', settled * sp.p, 'Platform / ecosystem share of ended battles (default 25%)', TREASURY_COLORS.platform],

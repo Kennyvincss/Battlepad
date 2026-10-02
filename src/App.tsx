@@ -35,6 +35,7 @@ export function App() {
               <Route path="launch" element={<LaunchPage />} />
               <Route path="create-battle" element={<CreateBattlePage />} />
               <Route path="challenge/:id" element={<ChallengePage />} />
+              <Route path="coins" element={<DiscoverPage />} />
               <Route path="discover" element={<DiscoverPage />} />
               <Route path="leaderboard" element={<LeaderboardPage />} />
               <Route path="creators" element={<CreatorsPage />} />

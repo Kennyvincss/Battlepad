@@ -49,6 +49,9 @@ export function sideView(e: LiveStore, b: Battle, which: 'a' | 'b'): SideView {
   };
 }
 
+/** Coins the keeper listed automatically from pump.fun (no human lister). */
+export const isAutoListed = (t: { listedBy: string }) => t.listedBy.startsWith('auto:');
+
 export function battleIntegrity(b: Battle) {
   if (b.final) return Math.round((b.final.integrityA + b.final.integrityB) / 2);
   const vol = b.a.volumeUsd + b.b.volumeUsd;
