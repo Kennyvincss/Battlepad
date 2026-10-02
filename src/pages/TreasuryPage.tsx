@@ -43,7 +43,11 @@ function FeeSetup() {
   const ui = useUi();
   const [st, setSt] = useState<{ address: string; exists: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
-  useEffect(() => { void e.feeAccountStatus().then(setSt).catch(() => setSt(null)); }, [e, e.wallet.address]);
+  const [err, setErr] = useState<string>();
+  useEffect(() => {
+    setErr(undefined);
+    void e.feeAccountStatus().then(setSt).catch((x) => { setSt(null); setErr(`Could not check the fee account: ${(x as Error).message}. Check VITE_SOLANA_RPC_URL.`); });
+  }, [e, e.wallet.address]);
   const create = async () => {
     setBusy(true);
     try {
@@ -61,6 +65,7 @@ function FeeSetup() {
       <b>Set up the treasury fee (operator)</b>
       <span className="muted" style={{ fontSize: 12.5 }}>Fees are paid into a wrapped-SOL token account owned by your treasury wallet. Connect that wallet, create the account (about 0.002 SOL rent, one time), then set <code>VITE_PLATFORM_FEE_BPS</code> and <code>VITE_FEE_ACCOUNT</code> in Vercel and <code>FEE_ACCOUNT</code> in Supabase secrets.</span>
       {!e.wallet.connected && <button className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => ui.openWallet()}>Connect treasury wallet</button>}
+      {err && <span className="down" style={{ fontSize: 12 }}>{err}</span>}
       {st && (
         <div className="row wrap" style={{ gap: 10 }}>
           <span className="hash">{st.address}</span>
