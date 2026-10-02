@@ -124,11 +124,11 @@ export function TreasuryPage() {
             <span className="dim" style={{ fontSize: 11.5 }}>{sub}</span>
           </div>
         ))}
-        <div className="panel panel-pad tre-tile" style={{ '--c': TREASURY_COLORS.platform } as React.CSSProperties}>
+        {(config.launchFeeUsd > 0 || (launches ?? []).some((x) => x.feeUsd > 0)) && <div className="panel panel-pad tre-tile" style={{ '--c': TREASURY_COLORS.platform } as React.CSSProperties}>
           <span className="stat-l">Launch fees</span>
           <span className="tre-tile-v mono">{launches === null ? '…' : usd(launches.reduce((s, x) => s + x.feeUsd, 0), { compact: false })}</span>
           <span className="dim" style={{ fontSize: 11.5 }}>{launches?.length ?? 0} tokens launched on BATTLE · platform revenue, separate from battle treasuries</span>
-        </div>
+        </div>}
       </div>
 
       <div className="tre-grid">

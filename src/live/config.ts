@@ -9,7 +9,7 @@ export const config = {
   /** Wrapped-SOL token account that receives the platform fee. */
   feeAccount: import.meta.env.VITE_FEE_ACCOUNT as string | undefined,
   /** Displayed launch fee; the launch-token function's LAUNCH_FEE_USD is what's actually charged. */
-  launchFeeUsd: Number(import.meta.env.VITE_LAUNCH_FEE_USD ?? 3),
+  launchFeeUsd: Math.max(0, Number(import.meta.env.VITE_LAUNCH_FEE_USD ?? 0) || 0),
 };
 
 export const isConfigured = () => !!(config.supabaseUrl && config.supabaseAnonKey);

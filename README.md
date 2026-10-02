@@ -44,17 +44,16 @@ Scoring, rules hashing, random-end checks and integrity heuristics live in `supa
      SOLANA_RPC_URL='<mainnet RPC, enables swap verification>' \
      FEE_ACCOUNT='<same as VITE_FEE_ACCOUNT, optional>' \
      MIN_LIQUIDITY_USD=10000 \
-     LAUNCH_FEE_WALLET='<SOL address that receives launch fees>' \
-     LAUNCH_FEE_USD=3
+     LAUNCH_FEE_USD=0
    ```
-   Token launches stay off until `LAUNCH_FEE_WALLET` is set. Also run `supabase/migrations/20261002000000_launches.sql`.
+   Launches are free by default. To charge a flat launch fee, set `LAUNCH_FEE_USD` (and `VITE_LAUNCH_FEE_USD` in Vercel) plus `LAUNCH_FEE_WALLET`. Also run `supabase/migrations/20261002000000_launches.sql`.
    Without `BIRDEYE_API_KEY`, Holder Growth is neutral (50/50) for every battle, as the published rules state.
 
 ### 2. Vercel
 Set the variables from `.env.example` under **Project → Settings → Environment Variables**, then redeploy. The build is `npm run build`, output `dist` (see `vercel.json`).
 
 ### 3. First battles
-- **Launch a new token:** **Launch → Create new token**. The creator uploads an image, sets name and ticker, and adds an optional dev buy. They approve one transaction, which creates the token on pump.fun's bonding curve and pays the BATTLE launch fee (`LAUNCH_FEE_USD`, in SOL) to `LAUNCH_FEE_WALLET`. The fee is in the same transaction, so a failed launch is never charged. The token is listed straight away, and the creator wallet is its lister.
+- **Launch a new token:** **Launch → Create new token**. The creator uploads an image, sets name and ticker, and adds an optional dev buy. They approve one transaction, which creates the token on pump.fun's bonding curve. Launches are free unless `LAUNCH_FEE_USD` is set; a fee is paid in SOL inside the same transaction, so a failed launch is never charged. The token is listed straight away, and the creator wallet is its lister.
 - **List tokens:** connect a wallet → **List token** → paste a mint. The token needs a DEX pool with at least $10K liquidity. The listing wallet can send and accept challenges for that token.
 - **Challenge:** **⚔️ Challenge** → pick your token and an opponent → rules → send. The opponent's lister accepts from their notifications.
 - **Tournaments (admin):** call the keeper with your secret. The `tokens` array takes 4 or 8 listed mints, in seeding order:
@@ -73,7 +72,7 @@ Set the variables from `.env.example` under **Project → Settings → Environme
 | Battle Score, random end, integrity | Live, computed every minute by the keeper |
 | Chat, watchers | Live (Supabase Realtime), Sign in with Solana required to post |
 | Treasury | Funded by the optional Jupiter platform fee on swaps made through the app. Every swap is verified on-chain. **Payouts are manual until a battle contract exists.** |
-| Creating brand-new tokens | Live: pump.fun bonding curve via PumpPortal, with the flat BATTLE launch fee paid in the same transaction and verified on-chain before listing. |
+| Creating brand-new tokens | Live: pump.fun bonding curve via PumpPortal, verified on-chain before listing. Free by default; an optional flat launch fee can be enabled. |
 
 ### Known limits
 - GeckoTerminal's free API allows about 30 calls a minute, so trades are indexed for about 13 live battles per minute. A paid data provider removes this limit.

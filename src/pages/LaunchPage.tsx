@@ -142,7 +142,8 @@ function CreateTokenTab() {
 
   const ticker = symbol.replace(/^\$/, '').toUpperCase();
   const buy = Number(devBuy || 0);
-  const feeSol = e.solUsd ? config.launchFeeUsd / e.solUsd : null;
+  const hasFee = config.launchFeeUsd > 0;
+  const feeSol = !hasFee ? 0 : e.solUsd ? config.launchFeeUsd / e.solUsd : null;
   const total = feeSol !== null ? feeSol + buy + NETWORK_COST_SOL : null;
   const short_ = e.wallet.solBalance !== null && total !== null && e.wallet.solBalance < total;
   const errors = [
@@ -203,13 +204,13 @@ function CreateTokenTab() {
           <span className="dim" style={{ fontSize: 12 }}>Buy your own token in the launch transaction, before anyone else can.</span>
         </div>
         <div className="config-box">
-          <div className="kv"><span>BATTLE launch fee</span><span>${config.launchFeeUsd.toFixed(2)}{feeSol !== null && ` ≈ ${feeSol.toFixed(4)} SOL`}</span></div>
+          <div className="kv"><span>BATTLE launch fee</span><span className={hasFee ? '' : 'up'}>{hasFee ? <>${config.launchFeeUsd.toFixed(2)}{feeSol !== null && ` ≈ ${feeSol.toFixed(4)} SOL`}</> : 'Free'}</span></div>
           <div className="kv"><span>Dev buy</span><span>{buy.toFixed(3)} SOL</span></div>
           <div className="kv"><span>Network & pump.fun creation</span><span>≈ {NETWORK_COST_SOL} SOL</span></div>
           <div className="kv"><span><b>Total</b></span><span><b>{total !== null ? `≈ ${total.toFixed(4)} SOL` : '—'}</b></span></div>
           {e.wallet.solBalance !== null && <div className="kv"><span>Your balance</span><span className={short_ ? 'down' : ''}>{e.wallet.solBalance.toFixed(4)} SOL</span></div>}
         </div>
-        <div className="callout callout-info"><span>ℹ️</span><span>Your token launches on pump.fun's bonding curve and trades immediately, then graduates to PumpSwap at pump.fun's threshold. The launch fee is paid in SOL inside the same transaction: if the launch fails, nothing is charged.</span></div>
+        <div className="callout callout-info"><span>ℹ️</span><span>Your token launches on pump.fun's bonding curve and trades immediately, then graduates to PumpSwap at pump.fun's threshold.{hasFee ? ' The launch fee is paid in SOL inside the same transaction: if the launch fails, nothing is charged.' : ' BATTLE charges nothing to launch; you only pay Solana network and pump.fun creation costs.'}</span></div>
       </div>
 
       <div className="col" style={{ gap: 14 }}>
@@ -223,7 +224,7 @@ function CreateTokenTab() {
         {errors.length > 0 && (name || symbol || image) && <div className="dim" style={{ fontSize: 12 }}>{errors.join(' · ')}</div>}
         {short_ && <div className="callout callout-warn"><span>⚠️</span><span>Not enough SOL for this launch.</span></div>}
         <button className={`btn btn-lg btn-block ${mode === 'battle' ? 'btn-battle' : 'btn-primary'}`} disabled={errors.length > 0 || !!step || short_ || !e.configured} onClick={launch}>
-          {step ?? `🚀 Launch $${ticker || 'TOKEN'} · $${config.launchFeeUsd}`}
+          {step ?? `🚀 Launch $${ticker || 'TOKEN'}${hasFee ? ` · $${config.launchFeeUsd}` : ''}`}
         </button>
         {!e.wallet.connected && <div className="dim" style={{ fontSize: 12 }}>You'll connect and sign in with your wallet, then approve one launch transaction.</div>}
       </div>

@@ -53,9 +53,9 @@ Deno.serve(async (req) => {
     const { data: { user } } = await userClient.auth.getUser();
     const wallet = walletOf(user);
     if (!wallet) return json({ error: "Sign in with your wallet first." }, 401);
+    const feeUsd = Math.max(0, Number(Deno.env.get("LAUNCH_FEE_USD") ?? 0) || 0);
     const feeWallet = Deno.env.get("LAUNCH_FEE_WALLET");
-    if (!feeWallet) return json({ error: "Token launches are not enabled yet." }, 503);
-    const feeUsd = Number(Deno.env.get("LAUNCH_FEE_USD") ?? 3);
+    if (feeUsd > 0 && !feeWallet) return json({ error: "Launch fee is set but LAUNCH_FEE_WALLET is missing." }, 503);
     const conn = new Connection(Deno.env.get("SOLANA_RPC_URL") || "https://api.mainnet-beta.solana.com", "confirmed");
     const db = createClient(sbUrl, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"), { auth: { persistSession: false } });
     if ((req.headers.get("content-type") ?? "").includes("multipart/form-data")) {
@@ -105,10 +105,9 @@ Deno.serve(async (req) => {
       });
       if (!pr.ok) return json({ error: `Could not build launch transaction (${pr.status}): ${(await pr.text()).slice(0, 160)}` }, 502);
       const tx2 = VersionedTransaction.deserialize(new Uint8Array(await pr.arrayBuffer()));
-      const price = await solUsd();
-      const feeLamports = Math.ceil(feeUsd / price * 1e9);
-      const withFee = await appendIx(tx2, SystemProgram.transfer({ fromPubkey: new PublicKey(wallet), toPubkey: new PublicKey(feeWallet), lamports: feeLamports }), conn);
-      const bytes = withFee.serialize();
+      const feeLamports = feeUsd > 0 ? Math.ceil(feeUsd / await solUsd() * 1e9) : 0;
+      const out = feeLamports > 0 ? await appendIx(tx2, SystemProgram.transfer({ fromPubkey: new PublicKey(wallet), toPubkey: new PublicKey(feeWallet), lamports: feeLamports }), conn) : tx2;
+      const bytes = out.serialize();
       if (bytes.length > 1232) return json({ error: "Launch transaction too large." }, 500);
       const { error: error2 } = await db.from("launches").upsert({
         mint: mint2,
@@ -144,9 +143,11 @@ Deno.serve(async (req) => {
     const signers = statics.slice(0, m.header.numRequiredSignatures);
     if (!signers.includes(wallet) || !signers.includes(mint)) return json({ error: "Transaction was not signed by the creator and mint." }, 400);
     if (!statics.includes(PUMP_PROGRAM.toBase58())) return json({ error: "Not a pump.fun launch." }, 400);
-    const fi = keys.indexOf(Deno.env.get("LAUNCH_FEE_WALLET"));
-    const paid = fi >= 0 ? tx.meta.postBalances[fi] - tx.meta.preBalances[fi] : 0;
-    if (paid < Number(l.fee_lamports)) return json({ error: "Launch fee not found in the transaction." }, 400);
+    if (Number(l.fee_lamports) > 0) {
+      const fi = feeWallet ? keys.indexOf(feeWallet) : -1;
+      const paid = fi >= 0 ? tx.meta.postBalances[fi] - tx.meta.preBalances[fi] : 0;
+      if (paid < Number(l.fee_lamports)) return json({ error: "Launch fee not found in the transaction." }, 400);
+    }
     const [curve] = PublicKey.findProgramAddressSync([new TextEncoder().encode("bonding-curve"), new PublicKey(mint).toBytes()], PUMP_PROGRAM);
     const row = {
       mint,
