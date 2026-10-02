@@ -19,7 +19,7 @@ const MIN = 60_000;
 const env = (k: string) => Deno.env.get(k) ?? '';
 
 // ------------------------------------------------------------------ market data
-interface Mkt { priceUsd: number; mcapUsd: number; liqUsd: number; holders: number | null }
+interface Mkt { priceUsd: number; mcapUsd: number; liqUsd: number; holders: number | null; pair: string }
 
 async function fetchJson(url: string, init?: RequestInit) {
   const r = await fetch(url, init);
@@ -35,9 +35,12 @@ async function markets(tokens: { mint: string; pair_address: string }[]): Promis
     const pairs: any[] = await fetchJson(`https://api.dexscreener.com/tokens/v1/solana/${chunk.map((t) => t.mint).join(',')}`);
     for (const t of chunk) {
       const own = pairs.filter((p) => p.baseToken?.address === t.mint);
-      const p = own.find((x) => x.pairAddress === t.pair_address) ?? own.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0];
+      const deepest = own.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0];
+      const listed = own.find((x) => x.pairAddress === t.pair_address);
+      // Keep the listed pool unless it has been drained (e.g. a graduated bonding curve).
+      const p = listed && (listed.liquidity?.usd ?? 0) * 2 >= (deepest?.liquidity?.usd ?? 0) ? listed : deepest;
       if (!p) continue;
-      out.set(t.mint, { priceUsd: +p.priceUsd, mcapUsd: +(p.marketCap ?? p.fdv ?? 0), liqUsd: +(p.liquidity?.usd ?? 0), holders: null });
+      out.set(t.mint, { priceUsd: +p.priceUsd, mcapUsd: +(p.marketCap ?? p.fdv ?? 0), liqUsd: +(p.liquidity?.usd ?? 0), holders: null, pair: p.pairAddress });
     }
   }
   const key = env('BIRDEYE_API_KEY');
@@ -51,6 +54,20 @@ async function markets(tokens: { mint: string; pair_address: string }[]): Promis
     }));
   }
   return out;
+}
+
+/**
+ * A token's listed pool can disappear (a pump.fun bonding curve graduating to PumpSwap,
+ * a migrated pool). When it does, follow the token's deepest live pool.
+ */
+async function syncPairs(db: Db, tokens: { mint: string; pair_address: string }[], mk: Map<string, Mkt>) {
+  for (const t of tokens) {
+    const pair = mk.get(t.mint)?.pair;
+    if (pair && pair !== t.pair_address) {
+      await db.from('tokens').update({ pair_address: pair }).eq('mint', t.mint);
+      t.pair_address = pair;
+    }
+  }
 }
 
 /** GeckoTerminal: latest trades for a pool, normalised to buy/sell of `mint`. */
@@ -96,6 +113,7 @@ async function startBattles(db: Db, log: string[]) {
   const { data: live } = await db.from('battles').select('token_a, token_b').eq('status', 'live');
   const busy = new Set((live ?? []).flatMap((b) => [b.token_a, b.token_b]));
   const mk = await markets(due.flatMap((b) => [b.ta, b.tb]));
+  await syncPairs(db, due.flatMap((b) => [b.ta, b.tb]), mk);
   for (const b of due) {
     if (!rulesValid(b.rules) || rulesHash(b.rules, b.token_a, b.token_b) !== b.rules_hash) {
       await db.from('battles').update({ status: 'cancelled' }).eq('id', b.id);
@@ -126,6 +144,7 @@ async function updateLive(db: Db, log: string[]) {
   const { data: battles } = await db.from('battles').select('*, ta:tokens!battles_token_a_fkey(*), tb:tokens!battles_token_b_fkey(*)').eq('status', 'live');
   if (!battles?.length) return;
   const mk = await markets(battles.flatMap((b) => [b.ta, b.tb]));
+  await syncPairs(db, battles.flatMap((b) => [b.ta, b.tb]), mk);
   const now = Date.now();
   let tradeCalls = 0;
 

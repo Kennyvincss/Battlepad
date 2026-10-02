@@ -1,5 +1,3 @@
-// GENERATED single-file bundle for pasting into the Supabase dashboard editor.
-// Source: supabase/functions/battle-keeper/index.ts (+ _shared). Regenerate with: npm run bundle:functions
 // supabase/functions/battle-keeper/index.ts
 import { createClient } from "npm:@supabase/supabase-js@2";
 
@@ -324,9 +322,11 @@ async function markets(tokens) {
     const pairs = await fetchJson(`https://api.dexscreener.com/tokens/v1/solana/${chunk.map((t) => t.mint).join(",")}`);
     for (const t of chunk) {
       const own = pairs.filter((p2) => p2.baseToken?.address === t.mint);
-      const p = own.find((x) => x.pairAddress === t.pair_address) ?? own.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0];
+      const deepest = own.sort((a, b) => (b.liquidity?.usd ?? 0) - (a.liquidity?.usd ?? 0))[0];
+      const listed = own.find((x) => x.pairAddress === t.pair_address);
+      const p = listed && (listed.liquidity?.usd ?? 0) * 2 >= (deepest?.liquidity?.usd ?? 0) ? listed : deepest;
       if (!p) continue;
-      out.set(t.mint, { priceUsd: +p.priceUsd, mcapUsd: +(p.marketCap ?? p.fdv ?? 0), liqUsd: +(p.liquidity?.usd ?? 0), holders: null });
+      out.set(t.mint, { priceUsd: +p.priceUsd, mcapUsd: +(p.marketCap ?? p.fdv ?? 0), liqUsd: +(p.liquidity?.usd ?? 0), holders: null, pair: p.pairAddress });
     }
   }
   const key = env("BIRDEYE_API_KEY");
@@ -341,6 +341,15 @@ async function markets(tokens) {
     }));
   }
   return out;
+}
+async function syncPairs(db, tokens, mk) {
+  for (const t of tokens) {
+    const pair = mk.get(t.mint)?.pair;
+    if (pair && pair !== t.pair_address) {
+      await db.from("tokens").update({ pair_address: pair }).eq("mint", t.mint);
+      t.pair_address = pair;
+    }
+  }
 }
 async function poolTrades(pair, mint) {
   const j = await fetchJson(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pair}/trades`, { headers: { accept: "application/json" } });
@@ -376,6 +385,7 @@ async function startBattles(db, log) {
   const { data: live } = await db.from("battles").select("token_a, token_b").eq("status", "live");
   const busy = new Set((live ?? []).flatMap((b) => [b.token_a, b.token_b]));
   const mk = await markets(due.flatMap((b) => [b.ta, b.tb]));
+  await syncPairs(db, due.flatMap((b) => [b.ta, b.tb]), mk);
   for (const b of due) {
     if (!rulesValid(b.rules) || rulesHash(b.rules, b.token_a, b.token_b) !== b.rules_hash) {
       await db.from("battles").update({ status: "cancelled" }).eq("id", b.id);
@@ -416,6 +426,7 @@ async function updateLive(db, log) {
   const { data: battles } = await db.from("battles").select("*, ta:tokens!battles_token_a_fkey(*), tb:tokens!battles_token_b_fkey(*)").eq("status", "live");
   if (!battles?.length) return;
   const mk = await markets(battles.flatMap((b) => [b.ta, b.tb]));
+  await syncPairs(db, battles.flatMap((b) => [b.ta, b.tb]), mk);
   const now = Date.now();
   let tradeCalls = 0;
   for (const b of battles) {

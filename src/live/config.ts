@@ -8,6 +8,8 @@ export const config = {
   feeBps: Number(import.meta.env.VITE_PLATFORM_FEE_BPS ?? 0),
   /** Wrapped-SOL token account that receives the platform fee. */
   feeAccount: import.meta.env.VITE_FEE_ACCOUNT as string | undefined,
+  /** Displayed launch fee; the launch-token function's LAUNCH_FEE_USD is what's actually charged. */
+  launchFeeUsd: Number(import.meta.env.VITE_LAUNCH_FEE_USD ?? 3),
 };
 
 export const isConfigured = () => !!(config.supabaseUrl && config.supabaseAnonKey);

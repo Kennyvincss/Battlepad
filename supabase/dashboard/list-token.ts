@@ -1,5 +1,3 @@
-// GENERATED single-file bundle for pasting into the Supabase dashboard editor.
-// Source: supabase/functions/list-token/index.ts (+ _shared). Regenerate with: npm run bundle:functions
 // supabase/functions/list-token/index.ts
 import { createClient } from "npm:@supabase/supabase-js@2";
 var cors = {

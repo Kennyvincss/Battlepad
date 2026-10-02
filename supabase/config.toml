@@ -4,3 +4,6 @@ verify_jwt = false   # authorised by KEEPER_SECRET instead (called by pg_cron)
 
 [functions.list-token]
 verify_jwt = true
+
+[functions.launch-token]
+verify_jwt = true

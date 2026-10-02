@@ -8,7 +8,7 @@ import { ago, short, sol } from '../lib/format';
 const NAV = [
   { to: '/', label: 'Battles', icon: '⚔️', end: true },
   { to: '/tournaments', label: 'Tournaments', icon: '🏆' },
-  { to: '/launch', label: 'List token', icon: '🚀' },
+  { to: '/launch', label: 'Launch', icon: '🚀' },
   { to: '/discover', label: 'Discover', icon: '🧭' },
   { to: '/leaderboard', label: 'Leaderboard', icon: '📊' },
   { to: '/creators', label: 'Creators', icon: '🛠', sec: true },

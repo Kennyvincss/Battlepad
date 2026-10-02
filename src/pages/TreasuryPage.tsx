@@ -39,7 +39,11 @@ function GrowthChart({ swaps, solUsd }: { swaps: SwapRecord[]; solUsd: number | 
 export function TreasuryPage() {
   const e = useData();
   const [swaps, setSwaps] = useState<SwapRecord[] | null>(null);
-  useEffect(() => { void e.loadTreasury().then((r) => setSwaps(r.swaps)); }, [e]);
+  const [launches, setLaunches] = useState<{ feeUsd: number; feeSol: number; t: number }[] | null>(null);
+  useEffect(() => {
+    void e.loadTreasury().then((r) => setSwaps(r.swaps));
+    void e.launchFees().then(setLaunches);
+  }, [e]);
   const list = swaps ?? [];
   const total = list.reduce((s, x) => s + x.feeSol, 0);
   const toUsd = (v: number) => (e.solUsd !== null ? usd(v * e.solUsd) : sol(v, 3));
@@ -77,6 +81,11 @@ export function TreasuryPage() {
             <span className="dim" style={{ fontSize: 11.5 }}>{sub}</span>
           </div>
         ))}
+        <div className="panel panel-pad tre-tile" style={{ '--c': TREASURY_COLORS.platform } as React.CSSProperties}>
+          <span className="stat-l">Launch fees</span>
+          <span className="tre-tile-v mono">{launches === null ? '…' : usd(launches.reduce((s, x) => s + x.feeUsd, 0), { compact: false })}</span>
+          <span className="dim" style={{ fontSize: 11.5 }}>{launches?.length ?? 0} tokens launched on BATTLE · platform revenue, separate from battle treasuries</span>
+        </div>
       </div>
 
       <div className="tre-grid">

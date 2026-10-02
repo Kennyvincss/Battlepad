@@ -8,6 +8,7 @@ import { config, isConfigured } from './config';
 import { fetchMarkets, fetchSolPrice } from './market';
 import { buildSwap, getQuote } from './jupiter';
 import { confirm, solBalance, tokenBalances } from './rpc';
+import { Keypair, VersionedTransaction } from '@solana/web3.js';
 import { getWallet, signAndSend, siwsAdapter, type InjectedWallet } from './wallet';
 import { rulesHash } from '../lib/shared';
 
@@ -446,18 +447,82 @@ export class LiveStore {
   }
 
   /* ------------------------------------------------------------ listing, challenges */
-  async listToken(mint: string, description: string) {
+  private async invoke<T>(fn: string, body: unknown): Promise<T> {
     if (!supabase) throw new Error('Backend not configured.');
-    const { data, error } = await supabase.functions.invoke('list-token', { body: { mint, description } });
+    const { data, error } = await supabase.functions.invoke(fn, { body: body as FormData });
     if (error) {
       const ctx = (error as { context?: Response }).context;
-      const body = ctx ? await ctx.json().catch(() => null) : null;
-      throw new Error(body?.error ?? error.message);
+      const b = ctx ? await ctx.json().catch(() => null) : null;
+      throw Object.assign(new Error(b?.error ?? error.message), { retry: !!b?.retry });
     }
-    const r = (data as { token: any }).token;
+    return data as T;
+  }
+
+  private addListed(r: any) {
     this.tokens[r.mint] = mapToken({ ...r, listed_at: new Date().toISOString() });
     void this.refreshMarkets();
     return this.tokens[r.mint];
+  }
+
+  async listToken(mint: string, description: string) {
+    const { token } = await this.invoke<{ token: any }>('list-token', { mint, description });
+    return this.addListed(token);
+  }
+
+  /** A launch that was paid and landed on-chain but not yet registered (e.g. the tab closed). */
+  pendingLaunch() { return ls.get<{ mint: string; signature: string; symbol: string } | null>('battle.pendingLaunch', null); }
+
+  /** Registers a landed launch with the backend; retries while the RPC catches up. */
+  async finishLaunch(p: { mint: string; signature: string }) {
+    for (let i = 0; ; i++) {
+      try {
+        const { token } = await this.invoke<{ token: any }>('launch-token', p);
+        ls.set('battle.pendingLaunch', null);
+        return this.addListed(token);
+      } catch (e) {
+        if (!(e as { retry?: boolean }).retry || i >= 9) throw e;
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    }
+  }
+
+  /**
+   * Creates a new token on pump.fun: the backend uploads metadata and builds the create
+   * transaction (with the BATTLE launch fee inside it); we co-sign with a fresh mint keypair
+   * and the user's wallet signs and sends. Nothing is charged unless the launch lands.
+   */
+  async launchToken(input: { name: string; symbol: string; description: string; image: File; devBuySol: number; socials: { website?: string; x?: string; telegram?: string } }, onStep?: (s: string) => void) {
+    if (!this.provider || !this.wallet.address) throw new Error('Connect a wallet first.');
+    const mint = Keypair.generate();
+    const f = new FormData();
+    f.append('name', input.name);
+    f.append('symbol', input.symbol);
+    f.append('description', input.description);
+    f.append('devBuySol', String(input.devBuySol));
+    f.append('mint', mint.publicKey.toBase58());
+    f.append('file', input.image);
+    for (const [k, v] of Object.entries(input.socials)) if (v) f.append(k, v);
+    onStep?.('Uploading metadata…');
+    const prep = await this.invoke<{ tx: string; feeSol: number }>('launch-token', f);
+    const tx = VersionedTransaction.deserialize(Uint8Array.from(atob(prep.tx), (c) => c.charCodeAt(0)));
+    tx.sign([mint]);
+    onStep?.('Approve in your wallet…');
+    const r = await this.provider.signAndSendTransaction(tx);
+    const signature = typeof r === 'string' ? r : r.signature;
+    const pending = { mint: mint.publicKey.toBase58(), signature, symbol: input.symbol };
+    ls.set('battle.pendingLaunch', pending);
+    onStep?.('Confirming on Solana…');
+    await confirm(signature, 90_000);
+    onStep?.('Listing on BATTLE…');
+    const token = await this.finishLaunch(pending);
+    void this.refreshBalances();
+    return { token, signature };
+  }
+
+  async launchFees() {
+    if (!supabase) return [] as { feeUsd: number; feeSol: number; t: number }[];
+    const { data } = await supabase.from('launches').select('fee_usd, fee_lamports, launched_at').order('launched_at', { ascending: false }).limit(5000);
+    return (data ?? []).map((r) => ({ feeUsd: +r.fee_usd, feeSol: r.fee_lamports / 1e9, t: Date.parse(r.launched_at) }));
   }
 
   async createChallenge(from: TokenId, to: TokenId, rules: BattleRules, message: string, start: number) {
