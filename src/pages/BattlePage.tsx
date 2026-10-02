@@ -94,6 +94,18 @@ export function BattlePage() {
         </div>
       </div>
 
+      {!ended && (
+        <div className="battle-guide">
+          <span className="battle-guide-i">👉</span>
+          <span className="grow">
+            {upcoming
+              ? <>This battle hasn't started yet. Once it does, buying <b>${A.token.ticker}</b> or <b>${B.token.ticker}</b> helps that side's score. It runs at least {duration(battle.rules.randomEnd.minDurationMs)}, then ends by surprise.</>
+              : <>Buy <b>${A.token.ticker}</b> or <b>${B.token.ticker}</b> to push that side's Battle Score up. Whoever is ahead when the battle ends wins. {elapsed >= battle.rules.randomEnd.minDurationMs ? <b>It can end any minute now.</b> : <>It can't end for another <b>{duration(battle.rules.randomEnd.minDurationMs - elapsed)}</b>.</>}</>}
+          </span>
+          {!upcoming && <button className="btn btn-primary btn-sm" onClick={() => go('trade')}>Trade now ↓</button>}
+        </div>
+      )}
+
       {alert && <IntegrityAlertBanner ev={alert} onDetails={() => setIntegOpen(true)} />}
 
       {ended && battle.final && <ResultPanel battle={battle} detail={detail} />}
@@ -305,8 +317,8 @@ export function DurationBlock({ battle, elapsed, detail }: { battle: Battle; ela
       <div className="dur">
         <div className="label">{battle.status === 'pending' ? 'Proposed start in' : 'Starts in'}</div>
         <div className="dur-v mono">{duration(Math.max(0, battle.scheduledStart - e.now), true)}</div>
-        <div className="dur-min">MINIMUM BATTLE TIME: {duration(min).toUpperCase()}</div>
-        <div className="dim" style={{ fontSize: 11.5, marginTop: 6 }}>Ends at a random, verifiable moment after that.</div>
+        <div className="dur-min">Runs at least {duration(min)}</div>
+        <div className="dim" style={{ fontSize: 11.5, marginTop: 6 }}>Then it can end at any minute (a fair, public random draw).</div>
       </div>
     );
   }
@@ -315,20 +327,20 @@ export function DurationBlock({ battle, elapsed, detail }: { battle: Battle; ela
   const lastCheck = checks.at(-1);
   return (
     <div className={`dur ${sd && live ? 'dur-sd' : ''}`}>
-      <div className="label">{ended ? 'Final duration' : 'Current duration'}</div>
+      <div className="label">{ended ? 'Battle lasted' : 'Running for'}</div>
       <div className="dur-v mono">{ended ? duration(battle.final?.durationMs ?? elapsed, true) : duration(elapsed, true)}</div>
-      <div className="dur-min">MINIMUM BATTLE TIME: {duration(min).toUpperCase()} {sd && '✓'}</div>
+      <div className="dur-min">Minimum {duration(min)} {sd && '✓ passed'}</div>
       {live && !sd && (
         <>
           <div className="progress" style={{ marginTop: 8 }}><div style={{ width: `${(elapsed / min) * 100}%`, background: 'var(--info)' }} /></div>
-          <div className="dim" style={{ fontSize: 11.5, marginTop: 6 }}>🛡 Protected phase — the battle cannot end yet.</div>
+          <div className="dim" style={{ fontSize: 11.5, marginTop: 6 }}>🛡 Safe period: the battle can't end yet.</div>
         </>
       )}
       {live && sd && (
         <>
-          <div className="sd-warn">⚠️ BATTLE CAN END AT ANY TIME</div>
-          <div className="dim mono" style={{ fontSize: 11, marginTop: 6 }}>
-            {checks.length} end checks run{lastCheck && <> · last {lastCheck.value.toFixed(3)} → continue</>}
+          <div className="sd-warn">🎲 Can end any minute now</div>
+          <div className="dim" style={{ fontSize: 11.5, marginTop: 6 }} title={lastCheck ? `Last draw ${lastCheck.value.toFixed(3)} → continue` : undefined}>
+            Ending checked {checks.length} {checks.length === 1 ? 'time' : 'times'}: still going
           </div>
         </>
       )}
@@ -352,14 +364,14 @@ export function LeaderBlock({ battle, A, B }: { battle: Battle; A: SideView; B: 
   const L = A.position === 1 ? A : B;
   return (
     <div className="leader" style={sideStyle(L.token.hue)}>
-      <div className="label">{ended ? 'Winner' : 'Current battle leader'}</div>
+      <div className="label">{ended ? 'Winner' : 'Winning right now'}</div>
       <div className="leader-v">
         <TokenLogo token={L.token} size={30} />
         <span style={{ color: sideColor(L.token.hue, 70) }}>{L.token.ticker}</span>
         {ended && '🏆'}
       </div>
       <div className="mono dim" style={{ fontSize: 11.5 }}>by {Math.abs(A.score - B.score).toFixed(1)} pts</div>
-      {!ended && <div className="leader-note">Not guaranteed to win — the battle can end at a random moment and the score at that moment decides.</div>}
+      {!ended && <div className="leader-note">The lead can still change. The score at the moment the battle ends decides.</div>}
     </div>
   );
 }
@@ -378,15 +390,15 @@ function ScoreSection({ battle, detail, A, B, onRules }: { battle: Battle; detai
   }
   const q = (s: typeof sa) => `${Math.round(s.inputs.distribution * 100)}·${Math.round(s.inputs.organicFlow * 100)}·${Math.round(s.inputs.liquidityRetention * 100)}`;
   const rows = [
-    { k: 'Performance', w: w.performance, a: sa.performance, b: sb.performance, ia: pct(Math.exp(sa.inputs.twReturn) - 1), ib: pct(Math.exp(sb.inputs.twReturn) - 1), hint: 'time-weighted return' },
-    { k: 'Holder growth', w: w.holderGrowth, a: sa.holderGrowth, b: sb.holderGrowth, ia: pct(sa.holderGrowthPct), ib: pct(sb.holderGrowthPct), hint: sa.holderGrowthPct === null ? 'holder data unavailable · neutral' : 'eligible holders' },
-    { k: 'Market quality', w: w.marketQuality, a: sa.marketQuality, b: sb.marketQuality, ia: q(sa), ib: q(sb), hint: 'distrib · organic · liquidity' },
+    { k: 'Performance', w: w.performance, a: sa.performance, b: sb.performance, ia: pct(Math.exp(sa.inputs.twReturn) - 1), ib: pct(Math.exp(sb.inputs.twReturn) - 1), hint: 'how much the price rose, averaged over the battle' },
+    { k: 'Holder growth', w: w.holderGrowth, a: sa.holderGrowth, b: sb.holderGrowth, ia: pct(sa.holderGrowthPct), ib: pct(sb.holderGrowthPct), hint: sa.holderGrowthPct === null ? 'holder data unavailable · neutral' : 'new holders since the start' },
+    { k: 'Market quality', w: w.marketQuality, a: sa.marketQuality, b: sb.marketQuality, ia: q(sa), ib: q(sb), hint: 'spread-out holders, genuine trades, steady liquidity' },
   ];
   return (
     <section className="panel score-panel">
       <div className="panel-head">
         <span className="panel-title">⚖️ Battle Score <InfoButton onClick={onRules} label="Score formula" /></span>
-        <span className="dim" style={{ fontSize: 11.5 }}>60% performance · 20% holder growth · 20% market quality · formula locked at start</span>
+        <span className="dim" style={{ fontSize: 11.5 }}>Score = 60% price performance + 20% new holders + 20% healthy trading</span>
       </div>
       <div className="score-grid">
         <div className="score-main">

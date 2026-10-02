@@ -56,7 +56,7 @@ function CardShell({ to, live, status, time, a, b, mid, foot1, foot2 }: {
                   <div className="bcard-rec"><span className="mono muted">{rec.wins}W-{rec.losses}L</span><StreakBadge streak={rec.streak} compact /></div>
                 </div>
               </div>
-              <div className="bcard-mc mono">{S.mcap}<span className="muted"> MC</span></div>
+              <div className="bcard-mc mono">{S.mcap}<span className="muted"> mkt cap</span></div>
               <div className="bcard-sub mono">{S.sub}</div>
             </div>
           );
@@ -91,7 +91,7 @@ export function BattleCard({ battle }: { battle: Battle }) {
   const rules = battle.rules;
   const t = e.tournamentOf(battle);
   const m = e.matchOf(battle);
-  const tour = t ? <span className="pill pill-gold" title={t.name}>🏆 {m ? ({ Quarterfinal: 'QF', Semifinal: 'SF', Final: 'FINAL' } as Record<string, string>)[roundName(t, m.round)] ?? roundName(t, m.round) : t.name}</span> : null;
+  const tour = t ? <span className="pill pill-gold" title={t.name}>🏆 {m ? roundName(t, m.round) : t.name}</span> : null;
   const sp = rules.rewardSplit;
 
   if (upcoming) {
@@ -102,9 +102,9 @@ export function BattleCard({ battle }: { battle: Battle }) {
         time={<>Starts in {duration(Math.max(0, battle.scheduledStart - e.now))}</>}
         a={{ token: A.token, mcap: usd(A.mcapUsd), sub: chg(A.change) }}
         b={{ token: B.token, mcap: usd(B.mcapUsd), sub: chg(B.change) }}
-        mid={<div className="bcard-pills"><span className="pill">{BATTLE_TYPES[rules.type].label}</span><span className="pill">Min {Math.round(rules.randomEnd.minDurationMs / 3_600_000)}h · random end</span></div>}
-        foot1={[<span className="muted">24h change shown</span>, <span className="mono">{usd(A.liquidityUsd)} · {usd(B.liquidityUsd)} liq.</span>]}
-        foot2={[<span>Rules locked at start</span>, <span className="mono">{Math.round(sp.winnerLiquidity * 100)} / {Math.round(sp.holderRewards * 100)} / {Math.round(sp.platform * 100)} split</span>]}
+        mid={<div className="bcard-pills"><span className="pill">{BATTLE_TYPES[rules.type].label}</span><span className="pill">Runs {Math.round(rules.randomEnd.minDurationMs / 3_600_000)}h+, surprise ending</span></div>}
+        foot1={[<span className="muted">Price change (24h)</span>, <span className="muted">{battle.status === 'pending' ? 'Not accepted yet' : 'Starts automatically'}</span>]}
+        foot2={[<span>Winner's share of fees</span>, <span className="mono">{Math.round(sp.winnerLiquidity * 100)}%</span>]}
       />
     );
   }
@@ -119,7 +119,7 @@ export function BattleCard({ battle }: { battle: Battle }) {
       b={{ token: B.token, mcap: usd(B.mcapUsd), sub: chg(B.change) }}
       mid={hasScore ? <ScoreTug a={A.score!} b={B.score!} hueA={A.token.hue} hueB={B.token.hue} /> : <div className="dim center" style={{ fontSize: 12 }}>First score sample within a minute of start</div>}
       foot1={[leader ? <Who label={isEnded ? 'Winner' : 'Leading'} token={leader} trophy={isEnded} /> : <span className="muted">No leader yet</span>, <span className="mono muted">{num(battle.traders)} traders · {usd(combinedVolumeUsd(battle))}</span>]}
-      foot2={[<span className="mono">👥 {num(A.holders)} · {num(B.holders)}</span>, <span>🛡 {battleIntegrity(battle)}%</span>]}
+      foot2={[<span title="Holders of each token">👥 Holders {num(A.holders)} vs {num(B.holders)}</span>, <span title="Share of trading volume that looks genuine (not wash trading)">🛡 {battleIntegrity(battle)}% clean</span>]}
     />
   );
 }

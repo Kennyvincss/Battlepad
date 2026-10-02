@@ -22,17 +22,17 @@ function GrowthChart({ swaps, solUsd }: { swaps: SwapRecord[]; solUsd: number | 
   const fmt = (v: number) => (solUsd ? usd(v) : sol(v, 3));
   return (
     <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: H, display: 'block' }}>
-      <defs><linearGradient id="treg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#2ee6a0" stopOpacity="0.35" /><stop offset="1" stopColor="#2ee6a0" stopOpacity="0" /></linearGradient></defs>
+      <defs><linearGradient id="treg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#059669" stopOpacity="0.35" /><stop offset="1" stopColor="#059669" stopOpacity="0" /></linearGradient></defs>
       {[0, 0.5, 1].map((f) => (
         <g key={f}>
-          <line x1={padL} x2={W - padR} y1={Y(f * max)} y2={Y(f * max)} stroke="rgba(255,255,255,0.06)" vectorEffect="non-scaling-stroke" />
-          <text x={W - padR + 6} y={Y(f * max) + 4} fill="rgba(180,188,203,0.7)" fontSize="11" fontFamily="JetBrains Mono, monospace">{fmt(f * max)}</text>
+          <line x1={padL} x2={W - padR} y1={Y(f * max)} y2={Y(f * max)} stroke="rgba(15,23,42,0.051)" vectorEffect="non-scaling-stroke" />
+          <text x={W - padR + 6} y={Y(f * max) + 4} fill="rgba(71,85,105,0.7)" fontSize="11" fontFamily="JetBrains Mono, monospace">{fmt(f * max)}</text>
         </g>
       ))}
       <path d={`${d}L${X(series.at(-1)!.t)},${Y(0)}L${X(t0)},${Y(0)}Z`} fill="url(#treg)" />
-      <path d={d} fill="none" stroke="#2ee6a0" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-      <text x={padL} y={H - 6} fill="rgba(180,188,203,0.6)" fontSize="11" fontFamily="JetBrains Mono, monospace">{new Date(t0).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</text>
-      <text x={W - padR - 30} y={H - 6} fill="rgba(180,188,203,0.6)" fontSize="11" fontFamily="JetBrains Mono, monospace">now</text>
+      <path d={d} fill="none" stroke="#059669" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+      <text x={padL} y={H - 6} fill="rgba(71,85,105,0.6)" fontSize="11" fontFamily="JetBrains Mono, monospace">{new Date(t0).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</text>
+      <text x={W - padR - 30} y={H - 6} fill="rgba(71,85,105,0.6)" fontSize="11" fontFamily="JetBrains Mono, monospace">now</text>
     </svg>
   );
 }

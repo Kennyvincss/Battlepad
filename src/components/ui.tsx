@@ -16,7 +16,10 @@ export function TokenLogo({ token, size = 36, className = '' }: { token: Pick<To
 }
 
 export const sideStyle = (hue: number) => ({ '--h': hue } as CSSProperties);
-export const sideColor = (hue: number, l = 62) => `hsl(${hue} 90% ${l}%)`;
+/** Side colour for a light background: bright tones (l ≥ 60, written for the old dark theme) are darkened for contrast. */
+export const sideColor = (hue: number, l = 62) => `hsl(${hue} 82% ${l >= 66 ? 40 : l >= 60 ? 46 : l}%)`;
+/** Side colour on the dark share-card poster. */
+export const posterColor = (hue: number, l = 62) => `hsl(${hue} 90% ${l}%)`;
 
 /** Names where a figure comes from (transparency rule). */
 export function SourceTag({ text }: { text: string }) {
@@ -26,12 +29,12 @@ export function SourceTag({ text }: { text: string }) {
 export function StatusPill({ battle, elapsed, compact }: { battle: Battle; elapsed: number; compact?: boolean }) {
   if (battle.status === 'ended') return <span className="pill pill-ended">Ended</span>;
   if (battle.status === 'scheduled') return <span className="pill pill-upcoming">Upcoming</span>;
-  if (battle.status === 'pending') return <span className="pill pill-upcoming">Awaiting accept</span>;
+  if (battle.status === 'pending') return <span className="pill pill-upcoming" title="The challenged token's creator hasn't accepted yet">Waiting for opponent</span>;
   if (battle.status === 'declined' || battle.status === 'cancelled') return <span className="pill pill-ended">{battle.status}</span>;
   return (
     <span className="row" style={{ gap: 6 }}>
       <span className="pill pill-live">Live</span>
-      {elapsed >= battle.rules.randomEnd.minDurationMs && <span className="pill pill-sd" title="Past the 1-hour minimum: the battle can end at any time">{compact ? '⚠ Any time' : '⚠ Can end any time'}</span>}
+      {elapsed >= battle.rules.randomEnd.minDurationMs && <span className="pill pill-sd" title="It has run past the 1-hour minimum, so it can now end at any minute">{compact ? '🎲 Final stretch' : '🎲 Can end any minute'}</span>}
     </span>
   );
 }

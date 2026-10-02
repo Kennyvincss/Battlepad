@@ -6,7 +6,7 @@ import { roundName } from '../live/store';
 import { useUi } from './AppState';
 import { duration, num, pct } from '../lib/format';
 import { battleIntegrity, cardVariants, headToHead, type CardVariant } from '../lib/view';
-import { TokenLogo, sideColor } from './ui';
+import { TokenLogo, posterColor } from './ui';
 
 const LABEL: Record<CardVariant, string> = {
   tournament: 'Tournament', streak: 'Streak', close: 'Photo finish', dominant: 'Domination', rematch: 'Rematch', standard: 'Classic',
@@ -96,12 +96,12 @@ export function ShareCard({ battle, showView = false }: { battle: Battle; showVi
         <div className="scard-main">
           <div className="scard-side win">
             <TokenLogo token={W} size={100} className="scard-logo" />
-            <div className="scard-ticker" style={{ color: sideColor(W.hue, 70) }}>{W.ticker}</div>
+            <div className="scard-ticker" style={{ color: posterColor(W.hue, 70) }}>{W.ticker}</div>
             <div className="scard-won">🏆 {variant === 'tournament' && isFinal ? 'CHAMPION' : 'WON'}</div>
           </div>
           <div className="scard-score">
             <div className="scard-score-l">Final score</div>
-            <div className="scard-score-v"><span style={{ color: sideColor(W.hue, 70) }}>{ws.total.toFixed(0)}</span><span className="scard-dash">—</span><span className="scard-lose">{ls.total.toFixed(0)}</span></div>
+            <div className="scard-score-v"><span style={{ color: posterColor(W.hue, 70) }}>{ws.total.toFixed(0)}</span><span className="scard-dash">—</span><span className="scard-lose">{ls.total.toFixed(0)}</span></div>
             <div className="scard-dur">⏱ {duration(f.durationMs)}</div>
           </div>
           <div className="scard-side lose">
@@ -116,7 +116,7 @@ export function ShareCard({ battle, showView = false }: { battle: Battle; showVi
             const s = st as typeof sw;
             return (
               <div key={token.id} className={`scard-stat ${won ? 'win' : ''}`}>
-                <b style={{ color: won ? sideColor(token.hue, 70) : undefined }}>{token.ticker}</b>
+                <b style={{ color: won ? posterColor(token.hue, 70) : undefined }}>{token.ticker}</b>
                 <span><i className={s.perf >= 0 ? 'up' : 'down'}>{pct(s.perf, 0)}</i> price</span>
                 {s.growth !== null && <span><i className={s.growth >= 0 ? 'up' : 'down'}>{pct(s.growth, 0)}</i> holder growth</span>}
                 {s.holders !== null && <span><i>{num(s.holders, false)}</i> holders</span>}

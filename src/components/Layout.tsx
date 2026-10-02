@@ -53,7 +53,7 @@ function TopBar() {
         </nav>
         <div className="grow show-mobile" />
         <div className="nav-right">
-          <Link to="/create-battle" className="btn btn-battle btn-sm hide-mobile">⚔️ Challenge</Link>
+          <Link to="/create-battle" className="btn btn-battle btn-sm hide-mobile">⚔️ Start a battle</Link>
           <Notifications />
           {data.wallet.connected ? (
             <Link to="/portfolio" className="btn btn-sm wallet-btn">
@@ -153,13 +153,13 @@ function MobileTabBar() {
   const [menu, setMenu] = useState(false);
   const loc = useLocation();
   useEffect(() => setMenu(false), [loc.pathname]);
-  const items = [NAV[0], NAV[1], { to: '/create-battle', label: 'Challenge', icon: '⚔️' }, { to: '/portfolio', label: 'Me', icon: '👤' }];
+  const items = [NAV[0], NAV[1], { to: '/create-battle', label: 'Start', icon: '⚔️' }, { to: '/portfolio', label: 'Me', icon: '👤' }];
   const secondary = [NAV[2], NAV[3], NAV[4], NAV[5], NAV[6], { to: '/rules', label: 'How battles work', icon: '📜' }];
   return (
     <>
       <nav className="mobile-tabbar">
         {items.map((n) => (
-          <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `mtab ${isActive ? 'active' : ''} ${n.label === 'Challenge' ? 'mtab-cta' : ''}`}>
+          <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => `mtab ${isActive ? 'active' : ''} ${n.label === 'Start' ? 'mtab-cta' : ''}`}>
             <span className="mtab-i">{n.icon}</span>
             <span>{n.label}</span>
           </NavLink>

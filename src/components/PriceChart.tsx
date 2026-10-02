@@ -102,8 +102,8 @@ export function PriceChart({ battle, height = 360 }: { battle: Battle; height?: 
     lo -= pad; hi += pad;
     const Y = (v: number) => padT + (1 - (v - lo) / (hi - lo)) * plotH;
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-    ctx.fillStyle = 'rgba(180,188,203,0.6)';
+    ctx.strokeStyle = 'rgba(15,23,42,0.043)';
+    ctx.fillStyle = 'rgba(71,85,105,0.6)';
     for (let i = 0; i <= 4; i++) {
       const v = lo + ((hi - lo) * i) / 4;
       const y = Math.round(Y(v)) + 0.5;
@@ -147,7 +147,7 @@ export function PriceChart({ battle, height = 360 }: { battle: Battle; height?: 
     const tag = (v: number, col: string, text: string) => {
       const y = Y(v);
       ctx.fillStyle = col; ctx.fillRect(padL + plotW + 2, y - 8, padR - 4, 16);
-      ctx.fillStyle = '#05060a'; ctx.font = 'bold 10px JetBrains Mono, monospace'; ctx.fillText(text, padL + plotW + 5, y + 4);
+      ctx.fillStyle = '#ffffff'; ctx.font = 'bold 10px JetBrains Mono, monospace'; ctx.fillText(text, padL + plotW + 5, y + 4);
       ctx.font = '10.5px JetBrains Mono, monospace';
     };
 
@@ -159,7 +159,7 @@ export function PriceChart({ battle, height = 360 }: { battle: Battle; height?: 
         ctx.fillStyle = alpha(col, 0.35);
         for (const p of pts) { const h = (p.vol / maxV) * (volH - 6); ctx.fillRect(X(p.t) + off - bw / 2, volBase - h, bw, h); }
       }
-      ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(15,23,42,0.187)';
       ctx.beginPath(); ctx.moveTo(padL, Y(0)); ctx.lineTo(padL + plotW, Y(0)); ctx.stroke(); ctx.setLineDash([]);
       line(pa, colA, false);
       line(pb, colB, false);
@@ -179,7 +179,7 @@ export function PriceChart({ battle, height = 360 }: { battle: Battle; height?: 
       else for (const c of cs) {
         const up = c.c >= c.o;
         const x = X(c.t + interval.ms / 2);
-        ctx.strokeStyle = ctx.fillStyle = up ? '#2ee6a0' : '#ff4f6d';
+        ctx.strokeStyle = ctx.fillStyle = up ? '#059669' : '#ff4f6d';
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, Y(c.h)); ctx.lineTo(Math.round(x) + 0.5, Y(c.l)); ctx.stroke();
         const y1 = Y(Math.max(c.o, c.c)), y2 = Y(Math.min(c.o, c.c));
@@ -188,7 +188,7 @@ export function PriceChart({ battle, height = 360 }: { battle: Battle; height?: 
       if (cs.length) tag(cs.at(-1)!.c, col, fmtPrice(cs.at(-1)!.c));
     }
     if (hover !== null && hover >= padL && hover <= padL + plotW) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.strokeStyle = 'rgba(15,23,42,0.212)';
       ctx.beginPath(); ctx.moveTo(hover + 0.5, padT); ctx.lineTo(hover + 0.5, padT + plotH + volH); ctx.stroke();
     }
     (cv as unknown as { _map: unknown })._map = { t0, t1, padL, plotW };
