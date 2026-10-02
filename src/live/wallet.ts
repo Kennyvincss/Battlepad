@@ -1,4 +1,4 @@
-import { VersionedTransaction } from '@solana/web3.js';
+import { PublicKey, VersionedTransaction } from '@solana/web3.js';
 
 /** Minimal injected-wallet interface shared by Phantom, Solflare and Backpack. */
 export interface InjectedWallet {
@@ -30,13 +30,51 @@ export function getWallet(id: string): InjectedWallet | undefined {
   return WALLETS.find((w) => w.id === id)?.get();
 }
 
-/** Wraps an injected wallet in the shape Supabase's Sign in with Solana expects. */
+interface SignInInput {
+  domain?: string; address?: string; statement?: string; uri?: string; version?: string; chainId?: string;
+  nonce?: string; issuedAt?: string; expirationTime?: string; notBefore?: string; requestId?: string; resources?: readonly string[];
+}
+
+/** Sign-In-With-Solana message text in the Wallet Standard field order (what Phantom & co. parse). */
+export function siwsMessage(i: SignInInput) {
+  let m = `${i.domain} wants you to sign in with your Solana account:\n${i.address}`;
+  if (i.statement) m += `\n\n${i.statement}`;
+  const f: string[] = [];
+  if (i.uri) f.push(`URI: ${i.uri}`);
+  if (i.version) f.push(`Version: ${i.version}`);
+  if (i.chainId) f.push(`Chain ID: ${i.chainId}`);
+  if (i.nonce) f.push(`Nonce: ${i.nonce}`);
+  if (i.issuedAt) f.push(`Issued At: ${i.issuedAt}`);
+  if (i.expirationTime) f.push(`Expiration Time: ${i.expirationTime}`);
+  if (i.notBefore) f.push(`Not Before: ${i.notBefore}`);
+  if (i.requestId) f.push(`Request ID: ${i.requestId}`);
+  if (i.resources?.length) f.push('Resources:', ...i.resources.map((r) => `- ${r}`));
+  if (f.length) m += `\n\n${f.join('\n')}`;
+  return m;
+}
+
+/**
+ * Wraps an injected wallet in the shape Supabase's Sign in with Solana expects.
+ * We provide signIn() so the message is built in the standard field order; Supabase's
+ * own signMessage fallback puts Version before URI, which Phantom rejects as malformed.
+ */
 export function siwsAdapter(w: InjectedWallet) {
+  const sign = async (message: Uint8Array) => {
+    const r = await w.signMessage(message, 'utf8');
+    return new Uint8Array(r instanceof Uint8Array ? r : r.signature);
+  };
   return {
     publicKey: w.publicKey,
-    signMessage: async (message: Uint8Array) => {
-      const r = await w.signMessage(message, 'utf8');
-      return r instanceof Uint8Array ? r : r.signature;
+    signMessage: sign,
+    signIn: async (input: SignInInput) => {
+      const address = w.publicKey?.toBase58();
+      if (!address) throw new Error('Wallet is not connected.');
+      const signedMessage = new TextEncoder().encode(siwsMessage({ ...input, address }));
+      const publicKey = new PublicKey(address).toBytes();
+      return {
+        account: { address, publicKey, chains: ['solana:mainnet'] as const, features: [] as const },
+        signedMessage, signature: await sign(signedMessage), signatureType: 'ed25519' as const,
+      };
     },
   };
 }
