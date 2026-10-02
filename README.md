@@ -58,7 +58,7 @@ Set the variables from `.env.example` under **Project → Settings → Environme
 - **Launch a new token:** **Launch → Create new token**. The creator uploads an image, sets name and ticker, and adds an optional dev buy. They approve one transaction, which creates the token on pump.fun's bonding curve. Launches are free unless `LAUNCH_FEE_USD` is set; a fee is paid in SOL inside the same transaction, so a failed launch is never charged. The token is listed straight away, and the creator wallet is its lister.
 - **List tokens:** connect a wallet → **List token** → paste a mint. The token needs a DEX pool with at least $10K liquidity. The listing wallet can send and accept challenges for that token.
 - **Start a battle:** **⚔️ Start a battle** → pick any two listed coins → length (1 hour to 1 year) and prize split → start. There is no accept step: the battle is scheduled at once and the keeper starts it within a minute. A coin can be in one active battle at a time, and each wallet can have up to 5 active battles.
-- **Coins:** pump.fun coins (bonding curve and PumpSwap) whose pool holds at least `MIN_LIQUIDITY_USD` are listed automatically by the keeper every 10 minutes; auto-listed coins that drain below half that and never battled are removed.
+- **Coins:** pump.fun coins (bonding curve and PumpSwap) whose pool holds at least `MIN_LIQUIDITY_USD` are listed automatically by the keeper every minute (deeper scan every 10 minutes); auto-listed coins that drain below half that and never battled are removed.
 - **Tournaments (admin):** call the keeper with your secret. The `tokens` array takes 4 or 8 listed mints, in seeding order:
   ```bash
   curl -X POST https://<ref>.supabase.co/functions/v1/battle-keeper \

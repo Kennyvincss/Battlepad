@@ -4,6 +4,8 @@ import { useData } from '../data/DataContext';
 import { num, pct, price as fmtPrice, usd } from '../lib/format';
 import { SourceTag, StreakBadge, TokenLogo } from '../components/ui';
 import { isAutoListed } from '../lib/view';
+import { usePumpFeed, useCoinImage, type NewPumpCoin } from '../live/pumpFeed';
+import { ago, short } from '../lib/format';
 
 type Filter = 'all' | 'new' | 'pump' | 'battle' | 'free';
 type Sort = 'mcap' | 'liquidity' | 'volume' | 'change' | 'newest' | 'wins';
@@ -42,6 +44,8 @@ export function DiscoverPage() {
         </div>
         <SourceTag text="DexScreener · live" />
       </div>
+      <LivePumpFeed />
+
       <div className="spread wrap" style={{ marginBottom: 14 }}>
         <div className="seg">
           {([['all', 'All'], ['new', '🆕 New'], ['pump', '💊 pump.fun'], ['battle', '⚔️ In battle'], ['free', 'Free to battle']] as const).map(([k, l]) => (
@@ -92,5 +96,62 @@ export function DiscoverPage() {
       {rows.length > shown && <div className="center" style={{ marginTop: 14 }}><button className="btn" onClick={() => setShown(shown + PAGE)}>Show more · {rows.length - shown} left</button></div>}
       <p className="dim" style={{ fontSize: 12, marginTop: 10 }}>{num(Object.keys(e.tokens).length)} coins. Prices from DexScreener, refreshed every 20 seconds to 2 minutes.</p>
     </div>
+  );
+}
+
+const hueOf = (mint: string) => { let h = 0; for (const c of mint) h = (h * 31 + c.charCodeAt(0)) % 360; return h; };
+
+function LiveCoin({ c }: { c: NewPumpCoin }) {
+  const e = useData();
+  const img = useCoinImage(c.uri);
+  const listed = e.tokens[c.mint];
+  const mcapUsd = c.marketCapSol != null && e.solUsd != null ? c.marketCapSol * e.solUsd : null;
+  return (
+    <div className="live-coin">
+      <TokenLogo token={{ ticker: c.symbol, hue: hueOf(c.mint), logoUrl: img }} size={40} />
+      <div className="grow" style={{ minWidth: 0 }}>
+        <div className="row" style={{ gap: 6 }}><b className="truncate">${c.symbol}</b><span className="dim mono" style={{ fontSize: 10.5 }}>{ago(e.now - c.t)}</span></div>
+        <div className="muted truncate" style={{ fontSize: 12 }}>{c.name}</div>
+        <div className="dim mono" style={{ fontSize: 11 }}>{mcapUsd != null ? `${usd(mcapUsd)} mcap` : short(c.mint, 4)}{c.initialBuySol ? ` · dev ${c.initialBuySol.toFixed(2)} SOL` : ''}</div>
+      </div>
+      {listed
+        ? <Link className="btn btn-sm btn-primary" to={`/token/${c.mint}`}>Open</Link>
+        : <a className="btn btn-sm" href={`https://pump.fun/coin/${c.mint}`} target="_blank" rel="noopener noreferrer">Trade ↗</a>}
+    </div>
+  );
+}
+
+/** Every coin as it launches on pump.fun, straight from PumpPortal's live stream. */
+function LivePumpFeed() {
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem('battle.liveFeed') !== 'off'; } catch { return true; } });
+  const [paused, setPaused] = useState(false);
+  const { coins, status } = usePumpFeed(open, paused);
+  const toggle = () => { const v = !open; setOpen(v); try { localStorage.setItem('battle.liveFeed', v ? 'on' : 'off'); } catch { /* ignore */ } };
+  return (
+    <section className="panel live-feed">
+      <div className="panel-head">
+        <span className="panel-title">
+          <span className={`live-dot ${status === 'live' && !paused ? '' : 'off'}`} /> Live on pump.fun
+          <span className="dim" style={{ fontSize: 11, textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
+            {!open ? 'hidden' : status === 'live' ? (paused ? 'paused' : 'new coins as they launch') : status === 'connecting' ? 'connecting…' : 'reconnecting…'}
+          </span>
+        </span>
+        <span className="row" style={{ gap: 6 }}>
+          {open && <button className="btn btn-sm" onClick={() => setPaused(!paused)}>{paused ? '▶ Resume' : '⏸ Pause'}</button>}
+          <button className="btn btn-sm btn-ghost" onClick={toggle}>{open ? 'Hide' : 'Show'}</button>
+        </span>
+      </div>
+      {open && (
+        <div className="panel-pad">
+          {coins.length === 0 && <div className="dim" style={{ fontSize: 13 }}>{status === 'live' ? 'Waiting for the next launch…' : 'Connecting to the pump.fun live stream…'}</div>}
+          <div className="live-grid">
+            {coins.slice(0, 12).map((c) => <LiveCoin key={c.mint} c={c} />)}
+          </div>
+          <div className="dim" style={{ fontSize: 11.5, marginTop: 10 }}>
+            Brand-new coins are risky and most never take off. Once a coin's pool reaches $10K liquidity it's added to BATTLE automatically (checked every minute) and can battle.
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

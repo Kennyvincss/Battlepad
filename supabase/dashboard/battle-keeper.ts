@@ -658,11 +658,11 @@ var hueOf = (mint) => {
   for (const c of mint) h = (h * 31 + c.charCodeAt(0)) % 360;
   return h;
 };
-async function discoverPumpCoins(db, log) {
+async function discoverPumpCoins(db, log, deep) {
   const min = minLiquidity();
   const found = /* @__PURE__ */ new Map();
   for (const dex of ["pump-fun", "pumpswap"]) {
-    for (const page of [1, 2]) {
+    for (const page of deep ? [1, 2] : [1]) {
       try {
         const j = await gtJson(`/networks/solana/dexes/${dex}/pools?page=${page}&sort=h24_volume_usd_desc`);
         for (const p of j.data ?? []) {
@@ -723,6 +723,10 @@ async function discoverPumpCoins(db, log) {
     }
   }
   let removed = 0;
+  if (!deep) {
+    if (added) log.push(`pump.fun: listed ${added}`);
+    return;
+  }
   const { data: autos } = await db.from("tokens").select("mint").eq("listed_by", "auto:pump.fun").lt("listed_at", new Date(Date.now() - DAY).toISOString()).limit(60);
   if (autos?.length) {
     const mints = autos.map((r) => r.mint);
@@ -861,6 +865,6 @@ Deno.serve(async (req) => {
   await step("start", () => startBattles(db, log));
   await step("live", () => updateLive(db, log));
   await step("swaps", () => verifySwaps(db, log));
-  if ((/* @__PURE__ */ new Date()).getUTCMinutes() % 10 === 0 || body.action === "discover") await step("discover", () => discoverPumpCoins(db, log));
+  await step("discover", () => discoverPumpCoins(db, log, (/* @__PURE__ */ new Date()).getUTCMinutes() % 10 === 0 || body.action === "discover"));
   return Response.json({ ok: true, log });
 });

@@ -346,14 +346,14 @@ const hueOf = (mint: string) => { let h = 0; for (const c of mint) h = (h * 31 +
 /**
  * Lists pump.fun coins (bonding curve and PumpSwap) whose pool holds at least
  * MIN_LIQUIDITY_USD, so they can battle without anyone listing them by hand.
- * Runs every 10 minutes (4 GeckoTerminal calls). Auto-listed coins whose liquidity
+ * Runs every minute (a deeper scan every 10 minutes). Auto-listed coins whose liquidity
  * later falls below half the minimum, and that never battled, are removed again.
  */
-async function discoverPumpCoins(db: Db, log: string[]) {
+async function discoverPumpCoins(db: Db, log: string[], deep: boolean) {
   const min = minLiquidity();
   const found = new Map<string, number>();
   for (const dex of ['pump-fun', 'pumpswap']) {
-    for (const page of [1, 2]) {
+    for (const page of deep ? [1, 2] : [1]) {
       try {
         const j = await gtJson(`/networks/solana/dexes/${dex}/pools?page=${page}&sort=h24_volume_usd_desc`);
         for (const p of j.data ?? []) {
@@ -403,8 +403,9 @@ async function discoverPumpCoins(db: Db, log: string[]) {
     }
   }
 
-  // Prune auto-listed coins that drained and never battled.
+  // Prune auto-listed coins that drained and never battled (every 10 minutes).
   let removed = 0;
+  if (!deep) { if (added) log.push(`pump.fun: listed ${added}`); return; }
   const { data: autos } = await db.from('tokens').select('mint').eq('listed_by', 'auto:pump.fun').lt('listed_at', new Date(Date.now() - DAY).toISOString()).limit(60);
   if (autos?.length) {
     const mints = autos.map((r) => r.mint);
@@ -520,6 +521,7 @@ Deno.serve(async (req) => {
   await step('start', () => startBattles(db, log));
   await step('live', () => updateLive(db, log));
   await step('swaps', () => verifySwaps(db, log));
-  if (new Date().getUTCMinutes() % 10 === 0 || body.action === 'discover') await step('discover', () => discoverPumpCoins(db, log));
+  // Every minute: newest pump.fun coins (2 GeckoTerminal + 3 DexScreener calls). Every 10 minutes: deeper scan + prune.
+  await step('discover', () => discoverPumpCoins(db, log, new Date().getUTCMinutes() % 10 === 0 || body.action === 'discover'));
   return Response.json({ ok: true, log });
 });
