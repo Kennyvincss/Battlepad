@@ -7,7 +7,9 @@
 //
 // Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (provided by Supabase),
 //      KEEPER_SECRET (required), BIRDEYE_API_KEY (optional, holder counts),
-//      SOLANA_RPC_URL (optional, swap verification), FEE_ACCOUNT (optional).
+//      SOLANA_RPC_URL (optional, swap verification), FEE_ACCOUNT (optional),
+//      COINGECKO_API_KEY (optional but recommended: a free CoinGecko "Demo" key; the same
+//      on-chain data as GeckoTerminal, rate-limited per key instead of per shared IP).
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
 import type { BattleRules, EndCheck, ScoreInputs, SideScore } from '../_shared/types.ts';
 import { DAY, DURATIONS, canonical, makeRules, rulesHash, sampleEveryMs } from '../_shared/rules.ts';
@@ -75,10 +77,12 @@ async function syncPairs(db: Db, tokens: { mint: string; pair_address: string }[
  * after the first 429 in a run every other GeckoTerminal call that run is skipped.
  */
 let gtBlocked = false;
-async function gtJson(url: string) {
+async function gtJson(path: string) {
   if (gtBlocked) throw new Error('skipped: GeckoTerminal rate limit');
+  const key = env('COINGECKO_API_KEY');
+  const url = key ? `https://api.coingecko.com/api/v3/onchain${path}` : `https://api.geckoterminal.com/api/v2${path}`;
   try {
-    return await fetchJson(url, { headers: { accept: 'application/json' } });
+    return await fetchJson(url, { headers: key ? { accept: 'application/json', 'x-cg-demo-api-key': key } : { accept: 'application/json' } });
   } catch (e) {
     if (String(e).includes('429')) gtBlocked = true;
     throw e;
@@ -87,7 +91,7 @@ async function gtJson(url: string) {
 
 /** GeckoTerminal: latest trades for a pool, normalised to buy/sell of `mint`. */
 async function poolTrades(pair: string, mint: string) {
-  const j = await gtJson(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pair}/trades`);
+  const j = await gtJson(`/networks/solana/pools/${pair}/trades`);
   return (j.data ?? []).map((d: any) => {
     const a = d.attributes;
     return {
@@ -351,7 +355,7 @@ async function discoverPumpCoins(db: Db, log: string[]) {
   for (const dex of ['pump-fun', 'pumpswap']) {
     for (const page of [1, 2]) {
       try {
-        const j = await gtJson(`https://api.geckoterminal.com/api/v2/networks/solana/dexes/${dex}/pools?page=${page}&sort=h24_volume_usd_desc`);
+        const j = await gtJson(`/networks/solana/dexes/${dex}/pools?page=${page}&sort=h24_volume_usd_desc`);
         for (const p of j.data ?? []) {
           const mint = String(p.relationships?.base_token?.data?.id ?? '').replace(/^solana_/, '');
           const reserve = +(p.attributes?.reserve_in_usd ?? 0);
@@ -359,6 +363,18 @@ async function discoverPumpCoins(db: Db, log: string[]) {
         }
       } catch (e) { if (!String(e).includes('skipped')) log.push(`discover ${dex} p${page}: ${e}`); }
     }
+  }
+  // Second source that doesn't depend on GeckoTerminal: DexScreener's latest token
+  // profiles and boosts, keeping Solana pump.fun mints (their addresses end in "pump").
+  // Their liquidity is checked against DexScreener below.
+  for (const path of ['token-profiles/latest/v1', 'token-boosts/latest/v1', 'token-boosts/top/v1']) {
+    try {
+      const list: any[] = await fetchJson(`https://api.dexscreener.com/${path}`);
+      for (const x of list ?? []) {
+        const mint = String(x?.tokenAddress ?? '');
+        if (x?.chainId === 'solana' && mint.endsWith('pump') && !found.has(mint)) found.set(mint, 0);
+      }
+    } catch (e) { log.push(`discover dexscreener ${path}: ${e}`); }
   }
   let added = 0;
   if (found.size) {

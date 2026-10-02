@@ -44,6 +44,7 @@ Scoring, rules hashing, random-end checks and integrity heuristics live in `supa
      SOLANA_RPC_URL='<mainnet RPC, enables swap verification>' \
      FEE_ACCOUNT='<same as VITE_FEE_ACCOUNT, optional>' \
      MIN_LIQUIDITY_USD=10000 \
+     COINGECKO_API_KEY='<free CoinGecko Demo key: trade data + pump.fun discovery>' \
      LAUNCH_FEE_USD=0
    ```
    Then run `supabase/migrations/20261003000000_open_battles.sql` (open battles, PnL amounts).
@@ -77,7 +78,7 @@ Set the variables from `.env.example` under **Project → Settings → Environme
 | Creating brand-new tokens | Live: pump.fun bonding curve via PumpPortal, verified on-chain before listing. Free by default; an optional flat launch fee can be enabled. |
 
 ### Known limits
-- GeckoTerminal's free API allows about 30 calls a minute, so trades are indexed for about 13 live battles per minute. A paid data provider removes this limit.
+- Trade data comes from GeckoTerminal. Its keyless API limits by IP and Supabase functions share IPs, so set `COINGECKO_API_KEY` (free Demo key, same data, limited per key). Without it, trades may not index; prices and scores still update from DexScreener.
 - Trades are read from each token's main pool. When that pool is drained (for example, a pump.fun token graduating to PumpSwap), the keeper switches to the deepest live pool.
 - Launched tokens skip the $10K liquidity minimum that applies to listing existing tokens. Brand-new tokens have thin pools, so their battles are easier to move.
 - Holder counts need a Birdeye API key.

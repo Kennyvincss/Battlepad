@@ -380,17 +380,19 @@ async function syncPairs(db, tokens, mk) {
   }
 }
 var gtBlocked = false;
-async function gtJson(url) {
+async function gtJson(path) {
   if (gtBlocked) throw new Error("skipped: GeckoTerminal rate limit");
+  const key = env("COINGECKO_API_KEY");
+  const url = key ? `https://api.coingecko.com/api/v3/onchain${path}` : `https://api.geckoterminal.com/api/v2${path}`;
   try {
-    return await fetchJson(url, { headers: { accept: "application/json" } });
+    return await fetchJson(url, { headers: key ? { accept: "application/json", "x-cg-demo-api-key": key } : { accept: "application/json" } });
   } catch (e) {
     if (String(e).includes("429")) gtBlocked = true;
     throw e;
   }
 }
 async function poolTrades(pair, mint) {
-  const j = await gtJson(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pair}/trades`);
+  const j = await gtJson(`/networks/solana/pools/${pair}/trades`);
   return (j.data ?? []).map((d) => {
     const a = d.attributes;
     return {
@@ -662,7 +664,7 @@ async function discoverPumpCoins(db, log) {
   for (const dex of ["pump-fun", "pumpswap"]) {
     for (const page of [1, 2]) {
       try {
-        const j = await gtJson(`https://api.geckoterminal.com/api/v2/networks/solana/dexes/${dex}/pools?page=${page}&sort=h24_volume_usd_desc`);
+        const j = await gtJson(`/networks/solana/dexes/${dex}/pools?page=${page}&sort=h24_volume_usd_desc`);
         for (const p of j.data ?? []) {
           const mint = String(p.relationships?.base_token?.data?.id ?? "").replace(/^solana_/, "");
           const reserve = +(p.attributes?.reserve_in_usd ?? 0);
@@ -671,6 +673,17 @@ async function discoverPumpCoins(db, log) {
       } catch (e) {
         if (!String(e).includes("skipped")) log.push(`discover ${dex} p${page}: ${e}`);
       }
+    }
+  }
+  for (const path of ["token-profiles/latest/v1", "token-boosts/latest/v1", "token-boosts/top/v1"]) {
+    try {
+      const list = await fetchJson(`https://api.dexscreener.com/${path}`);
+      for (const x of list ?? []) {
+        const mint = String(x?.tokenAddress ?? "");
+        if (x?.chainId === "solana" && mint.endsWith("pump") && !found.has(mint)) found.set(mint, 0);
+      }
+    } catch (e) {
+      log.push(`discover dexscreener ${path}: ${e}`);
     }
   }
   let added = 0;
