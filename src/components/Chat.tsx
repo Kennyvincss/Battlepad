@@ -33,8 +33,8 @@ export function BattleChat({ battle, detail, height = 460, compact }: { battle: 
   const list = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const stick = useRef(true);
-  const ta = e.tokens[battle.a.tokenId];
-  const tb = e.tokens[battle.b.tokenId];
+  const ta = e.token(battle.a.tokenId);
+  const tb = e.token(battle.b.tokenId);
   const p = e.chatPrefs;
   const me = e.wallet.address;
 

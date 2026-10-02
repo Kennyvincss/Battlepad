@@ -149,7 +149,7 @@ export class LiveStore {
     this.tournaments = rows.map((t) => {
       const rounds: Tournament['rounds'] = Array.from({ length: Math.log2(t.size) }, () => []);
       for (const m of matches.filter((x) => x.tournament_id === t.id)) {
-        rounds[m.round][m.slot] = { id: `${t.id}-${m.round}-${m.slot}`, round: m.round, slot: m.slot, a: m.token_a ?? undefined, b: m.token_b ?? undefined, battleId: m.battle_id ?? undefined, winner: m.winner ?? undefined };
+        (rounds[m.round] ??= [])[m.slot] = { id: `${t.id}-${m.round}-${m.slot}`, round: m.round, slot: m.slot, a: m.token_a ?? undefined, b: m.token_b ?? undefined, battleId: m.battle_id ?? undefined, winner: m.winner ?? undefined };
       }
       return {
         id: t.id, slug: t.slug, name: t.name, tagline: t.tagline ?? undefined, hue: t.hue, size: t.size, status: t.status,
@@ -191,6 +191,10 @@ export class LiveStore {
   }
 
   /* ------------------------------------------------------------ queries */
+  /** Never undefined: a placeholder stands in while a token is still loading (or was removed). */
+  token(id: TokenId | undefined | null): Token {
+    return (id && this.tokens[id]) || { id: id ?? '', mint: id ?? '', ticker: id ? `${id.slice(0, 4)}…` : '—', name: 'Loading…', hue: 200, pairAddress: '', socials: {}, listedBy: '', listedAt: 0 };
+  }
   getBattle(id: BattleId) { return this.battles.find((b) => b.id === id); }
   liveBattles() { return this.battles.filter((b) => b.status === 'live'); }
   upcomingBattles() { return this.battles.filter((b) => b.status === 'scheduled' || b.status === 'pending').sort((x, y) => x.scheduledStart - y.scheduledStart); }

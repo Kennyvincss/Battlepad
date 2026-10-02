@@ -190,7 +190,7 @@ export function IntegrityPanel({ battle, detail }: { battle: Battle; detail?: Ba
           <div className="integ-ring" style={{ '--p': score, '--c': tone } as React.CSSProperties}><span className="mono">{score}%</span></div>
           <div className="grow col" style={{ gap: 4 }}>
             {[battle.a, battle.b].map((s) => {
-              const t = e.tokens[s.tokenId];
+              const t = e.token(s.tokenId);
               const sc = s.volumeUsd > 0 ? Math.round(100 * (1 - s.flaggedUsd / s.volumeUsd)) : 100;
               return (
                 <div key={s.tokenId} className="spread" style={{ fontSize: 12.5 }}>
@@ -296,7 +296,7 @@ export function LoyaltyCard({ battle }: { battle: Battle }) {
         {!e.wallet.connected && <div className="muted" style={{ fontSize: 13 }}>Connect a wallet to see your position in this battle.</div>}
         {e.wallet.connected && sides.length === 0 && <div className="muted" style={{ fontSize: 13 }}>You don't hold either token. Holders of the winning token through the end are eligible for the holder share of the treasury.</div>}
         {e.wallet.connected && sides.map((tid) => {
-          const t = e.tokens[tid];
+          const t = e.token(tid);
           const amt = e.wallet.tokens[tid]?.amount ?? 0;
           const px = e.markets[tid]?.priceUsd;
           const ended = battle.status === 'ended';

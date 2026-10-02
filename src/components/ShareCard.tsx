@@ -39,8 +39,8 @@ export function ShareCard({ battle, showView = false }: { battle: Battle; showVi
   const [variant, setVariant] = useState<CardVariant>(variants[0]);
   const f = battle.final!;
   const aWon = battle.winner === battle.a.tokenId;
-  const W = e.tokens[battle.winner!];
-  const L = e.tokens[aWon ? battle.b.tokenId : battle.a.tokenId];
+  const W = e.token(battle.winner!);
+  const L = e.token(aWon ? battle.b.tokenId : battle.a.tokenId);
   const ws = aWon ? f.scoreA : f.scoreB;
   const ls = aWon ? f.scoreB : f.scoreA;
   const stat = (won: boolean) => ({

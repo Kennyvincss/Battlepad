@@ -7,7 +7,7 @@ import { SourceTag, StreakBadge, TokenLogo, sideStyle } from '../components/ui';
 
 export function BattleRecord({ tokenId }: { tokenId: string }) {
   const e = useData();
-  const t = e.tokens[tokenId];
+  const t = e.token(tokenId);
   const r = e.recordFor(tokenId);
   const rate = r.entries.length ? r.wins / r.entries.length : 0;
   return (
@@ -42,7 +42,7 @@ export function BattleRecord({ tokenId }: { tokenId: string }) {
       )}
       <div className="record-list">
         {r.entries.map((x) => {
-          const o = e.tokens[x.opponentId];
+          const o = e.token(x.opponentId);
           const sim = e.getBattle(x.battleId);
           const row = (
             <>

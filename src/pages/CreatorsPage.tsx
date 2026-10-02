@@ -150,8 +150,8 @@ export function CreatorPage() {
         <div className="record-list" style={{ padding: '6px 16px 12px' }}>
           {f.entries.length === 0 && <div className="empty">No battles yet.</div>}
           {f.entries.slice(0, 30).map((x) => {
-            const t = e.tokens[x.tokenId];
-            const o = e.tokens[x.opponentId];
+            const t = e.token(x.tokenId);
+            const o = e.token(x.opponentId);
             return (
               <Link key={x.battleId + x.tokenId} to={`/battle/${x.battleId}`} className="record-row">
                 <span className={`record-res ${x.won ? 'w' : 'l'}`}>{x.won ? '🏆' : '❌'}</span>

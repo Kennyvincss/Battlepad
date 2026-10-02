@@ -336,3 +336,6 @@ input, textarea, select { font-family: inherit; color: inherit; }
 .formula { background: #f8fafc; }
 .tlogo { box-shadow: inset 0 0 0 1.5px hsl(var(--h) 70% 45% / 0.35); background: radial-gradient(circle at 30% 25%, hsl(var(--h) 90% 80%), hsl(var(--h) 75% 62%)); }
 .tlogo-txt { color: #fff; }
+.crash { border-color: #fecaca; background: #fffbfb; }
+.crash-page { margin: 24px auto; max-width: 720px; }
+.crash-msg { margin-top: 8px; font-size: 11.5px; color: var(--down); background: #fff1f2; border-radius: 8px; padding: 6px 8px; word-break: break-word; }

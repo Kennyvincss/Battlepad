@@ -1,3 +1,4 @@
+import { Safe } from '../components/ErrorBoundary';
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import type { Battle, BattleDetail, TokenId, TradeSide } from '../data/types';
@@ -108,7 +109,7 @@ export function BattlePage() {
 
       {alert && <IntegrityAlertBanner ev={alert} onDetails={() => setIntegOpen(true)} />}
 
-      {ended && battle.final && <ResultPanel battle={battle} detail={detail} />}
+      {ended && battle.final && <Safe name="The result"><ResultPanel battle={battle} detail={detail} /></Safe>}
 
       {/* --------------------------------------------------- VS hero */}
       <section className={`hero ${ended ? 'hero-ended' : ''}`}>
@@ -119,8 +120,8 @@ export function BattlePage() {
           <DurationBlock battle={battle} elapsed={elapsed} detail={detail} />
           {!upcoming && <LeaderBlock battle={battle} A={A} B={B} />}
           {leadFlash && (
-            <div key={leadFlash.k} className="lead-flash" style={sideStyle(e.tokens[leadFlash.leader].hue)}>
-              ⚡ LEAD CHANGE · {e.tokens[leadFlash.leader].ticker}
+            <div key={leadFlash.k} className="lead-flash" style={sideStyle(e.tokens[leadFlash.leader]?.hue ?? 200)}>
+              ⚡ LEAD CHANGE · {e.tokens[leadFlash.leader]?.ticker}
             </div>
           )}
         </div>
@@ -128,7 +129,7 @@ export function BattlePage() {
       </section>
 
       {/* --------------------------------------------------- score */}
-      {!upcoming && <ScoreSection battle={battle} detail={detail} A={A} B={B} onRules={() => setRulesOpen(true)} />}
+      {!upcoming && <Safe name="The Battle Score"><ScoreSection battle={battle} detail={detail} A={A} B={B} onRules={() => setRulesOpen(true)} /></Safe>}
       {upcoming && <UpcomingInfo battle={battle} onRules={() => setRulesOpen(true)} />}
 
       {/* --------------------------------------------------- section nav: TRADE | SPECTATE | CHAT | BATTLE INFO */}
@@ -146,35 +147,35 @@ export function BattlePage() {
         <div className="battle-grid">
           <div className="battle-main">
             <div id="sec-trade" className="anchor" />
-            <PriceChart battle={battle} height={380} />
+            <Safe name="The chart"><PriceChart battle={battle} height={380} /></Safe>
             <div id="sec-chat" className="anchor" />
             <div className="duo">
-              <ActivityTabs battle={battle} detail={detail} />
-              <BattleChat battle={battle} detail={detail} height={372} />
+              <Safe name="Live trades"><ActivityTabs battle={battle} detail={detail} /></Safe>
+              <Safe name="Chat"><BattleChat battle={battle} detail={detail} height={372} /></Safe>
             </div>
-            <EndProof battle={battle} detail={detail} />
+            <Safe name="The random-end log"><EndProof battle={battle} detail={detail} /></Safe>
           </div>
           <aside className="battle-side">
-            <TradePanel battle={battle} tokens={tokens} />
+            <Safe name="Trading"><TradePanel battle={battle} tokens={tokens} /></Safe>
             <div id="sec-info" className="anchor" />
-            {infoPanels}
+            <Safe name="Battle info">{infoPanels}</Safe>
           </aside>
         </div>
       ) : (
         <div className="battle-mobile">
           {show('trade') && (
             <>
-              <PriceChart battle={battle} height={280} />
-              <div id="trade"><TradePanel battle={battle} tokens={tokens} /></div>
-              <ActivityTabs battle={battle} detail={detail} />
+              <Safe name="The chart"><PriceChart battle={battle} height={280} /></Safe>
+              <div id="trade"><Safe name="Trading"><TradePanel battle={battle} tokens={tokens} /></Safe></div>
+              <Safe name="Live trades"><ActivityTabs battle={battle} detail={detail} /></Safe>
             </>
           )}
-          {show('spectate') && <SpectatePreview battle={battle} detail={detail} />}
-          {show('chat') && <BattleChat battle={battle} detail={detail} height="58vh" />}
+          {show('spectate') && <Safe name="Spectate"><SpectatePreview battle={battle} detail={detail} /></Safe>}
+          {show('chat') && <Safe name="Chat"><BattleChat battle={battle} detail={detail} height="58vh" /></Safe>}
           {show('info') && (
             <>
-              {infoPanels}
-              <EndProof battle={battle} detail={detail} />
+              <Safe name="Battle info">{infoPanels}</Safe>
+              <Safe name="The random-end log"><EndProof battle={battle} detail={detail} /></Safe>
               <button className="btn btn-block" onClick={() => setRulesOpen(true)}>📜 Full battle rules</button>
             </>
           )}
@@ -200,7 +201,7 @@ export function BattlePage() {
               <span className="panel-title">Trade</span>
               <button className="btn btn-ghost btn-sm" onClick={() => setSheet(null)}>✕</button>
             </div>
-            <TradePanel battle={battle} tokens={tokens} initialToken={sheet.token} initialSide={sheet.side} compact onDone={() => setSheet(null)} />
+            <Safe name="Trading"><TradePanel battle={battle} tokens={tokens} initialToken={sheet.token} initialSide={sheet.side} compact onDone={() => setSheet(null)} /></Safe>
           </div>
         </div>
       )}
@@ -212,7 +213,7 @@ export function BattlePage() {
           <IntegrityPanel battle={battle} detail={detail} />
         </Modal>
       )}
-      {reveal && battle.final && <ResultReveal battle={battle} onClose={() => setReveal(false)} />}
+      {reveal && battle.final && <Safe name="The result reveal"><ResultReveal battle={battle} onClose={() => setReveal(false)} /></Safe>}
     </div>
   );
 }
@@ -481,7 +482,7 @@ export function ScoreTimeline({ battle, detail }: { battle: Battle; detail?: Bat
 
 function UpcomingInfo({ battle, onRules }: { battle: Battle; onRules: () => void }) {
   const e = useData();
-  const challenger = e.tokens[battle.a.tokenId];
+  const challenger = e.token(battle.a.tokenId);
   return (
     <section className="panel panel-pad" style={{ marginTop: 16 }}>
       <div className="grid grid-3" style={{ gap: 16 }}>
@@ -505,7 +506,7 @@ function ActivityTabs({ battle, detail }: { battle: Battle; detail?: BattleDetai
   const mine = me ? (detail?.trades ?? []).filter((t) => t.wallet === me) : [];
   const feed = [...(detail?.feed ?? [])].reverse().slice(0, 60);
   const row = (t: (typeof trades)[number], showWallet: boolean) => {
-    const tk = e.tokens[t.tokenId];
+    const tk = e.token(t.tokenId);
     return (
       <tr key={t.tx + t.tokenId} className={`${t.flagged ? 'flagged' : ''} ${t.wallet === me ? 'mine' : ''}`}>
         <td className="mono dim"><a href={solscanTx(t.tx)} target="_blank" rel="noopener noreferrer">{ago(e.now - t.t)}</a></td>
@@ -560,7 +561,7 @@ function RecordsPanel({ battle }: { battle: Battle }) {
       <div className="panel-head"><span className="panel-title">📊 Battle Records</span></div>
       <div className="panel-pad col" style={{ gap: 14 }}>
         {[battle.a.tokenId, battle.b.tokenId].map((tid) => {
-          const t = e.tokens[tid];
+          const t = e.token(tid);
           const r = e.recordFor(tid);
           if (!t) return null;
           return (

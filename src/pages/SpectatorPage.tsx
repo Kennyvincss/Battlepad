@@ -144,7 +144,7 @@ export function SpectatorPage() {
             <div className="notable">
               {notable.length === 0 && <div className="empty" style={{ padding: 16 }}>No large trades in the last few minutes.</div>}
               {notable.map((x) => {
-                const tk = e.tokens[x.tokenId];
+                const tk = e.token(x.tokenId);
                 return (
                   <div key={x.tx + x.tokenId} className="notable-row" style={sideStyle(tk.hue)}>
                     <TokenLogo token={tk} size={22} />

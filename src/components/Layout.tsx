@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useData } from '../data/DataContext';
+import { ErrorBoundary } from './ErrorBoundary';
 import { useUi } from './AppState';
 import { ago, short, sol } from '../lib/format';
 
@@ -23,7 +24,7 @@ export function Layout() {
     <div className="app-shell">
       <TopBar />
       <StatusBanner />
-      <Outlet />
+      <ErrorBoundary key={loc.pathname} page><Outlet /></ErrorBoundary>
       <Footer />
       <MobileTabBar />
     </div>

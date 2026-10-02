@@ -40,8 +40,8 @@ export function PriceChart({ battle, height = 360 }: { battle: Battle; height?: 
   const canvas = useRef<HTMLCanvasElement>(null);
   const [w, setW] = useState(600);
   const [hover, setHover] = useState<number | null>(null);
-  const ta = e.tokens[battle.a.tokenId];
-  const tb = e.tokens[battle.b.tokenId];
+  const ta = e.token(battle.a.tokenId);
+  const tb = e.token(battle.b.tokenId);
   const interval = INTERVALS.find((x) => x.k === iv)!;
   const A = useCandles(ta, interval.tf);
   const B = useCandles(tb, interval.tf);

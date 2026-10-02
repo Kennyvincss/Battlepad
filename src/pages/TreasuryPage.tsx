@@ -147,7 +147,7 @@ export function TreasuryPage() {
                   {top.map(([id, fee]) => {
                     const b = e.getBattle(id);
                     if (!b) return null;
-                    const ta = e.tokens[b.a.tokenId], tb = e.tokens[b.b.tokenId];
+                    const ta = e.token(b.a.tokenId), tb = e.token(b.b.tokenId);
                     return (
                       <tr key={id}>
                         <td><Link to={`/battle/${id}`} className="row" style={{ gap: 6 }}><span className="dim mono">#{b.number}</span>{ta && <TokenLogo token={ta} size={20} />}<b>{ta?.ticker}</b><span className="dim">vs</span>{tb && <TokenLogo token={tb} size={20} />}<b>{tb?.ticker}</b></Link></td>

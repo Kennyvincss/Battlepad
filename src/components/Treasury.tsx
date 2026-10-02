@@ -9,7 +9,7 @@ export const TREASURY_COLORS = { fees: '#2ee6a0', winner: '#39e3ff', holders: '#
 
 export function SwapFeeRow({ s, now, solUsd, showBattle }: { s: SwapRecord; now: number; solUsd: number | null; showBattle?: boolean }) {
   const e = useData();
-  const t = e.tokens[s.tokenId];
+  const t = e.token(s.tokenId);
   const b = s.battleId ? e.getBattle(s.battleId) : undefined;
   return (
     <a className="tre-row" href={solscanTx(s.tx)} target="_blank" rel="noopener noreferrer">

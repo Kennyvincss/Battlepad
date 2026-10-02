@@ -54,7 +54,7 @@ export function TradePanel({ battle, tokens, initialToken, initialSide = 'buy', 
   useEffect(() => { if (initialToken) setTokenId(initialToken); }, [initialToken]);
   useEffect(() => { setSide(initialSide); }, [initialSide]);
 
-  const token = e.tokens[tokenId];
+  const token = e.token(tokenId);
   const market = e.markets[tokenId];
   const held = e.wallet.tokens[tokenId]?.amount ?? 0;
   const amount = parseFloat(amountStr) || 0;

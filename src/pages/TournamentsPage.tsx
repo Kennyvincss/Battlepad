@@ -27,7 +27,7 @@ export function TournamentCard({ t }: { t: Tournament }) {
   const e = useData();
   const r = e.currentRound(t);
   const live = liveMatches(e, t).length;
-  const entrants = t.rounds[0].flatMap((m) => [m.a!, m.b!]);
+  const entrants = (t.rounds[0] ?? []).flatMap((m) => [m.a, m.b]).filter((x): x is string => !!x);
   const champ = t.champion ? e.tokens[t.champion] : undefined;
   return (
     <Link to={`/tournament/${t.id}`} className="panel tcard" style={{ '--h': t.hue } as React.CSSProperties}>
@@ -40,7 +40,7 @@ export function TournamentCard({ t }: { t: Tournament }) {
       <div className="tcard-entrants">
         {entrants.map((id) => {
           const out = t.rounds.flat().some((m) => m.winner && (m.a === id || m.b === id) && m.winner !== id);
-          return <span key={id} className={out ? 'tcard-out' : ''} title={e.tokens[id].ticker}><TokenLogo token={e.tokens[id]} size={28} /></span>;
+          return <span key={id} className={out ? 'tcard-out' : ''} title={e.token(id).ticker}><TokenLogo token={e.token(id)} size={28} /></span>;
         })}
       </div>
       <div className="tcard-stats">
@@ -116,7 +116,7 @@ function MatchBox({ t, m }: { t: Tournament; m: TournamentMatch }) {
   const inner = (
     <>
       <div className="bm-top">
-        <span className="dim">{roundName(t, m.round)} {t.rounds[m.round].length > 1 ? m.slot + 1 : ''}</span>
+        <span className="dim">{roundName(t, m.round)} {(t.rounds[m.round]?.length ?? 0) > 1 ? m.slot + 1 : ''}</span>
         {live && <span className="bm-live"><span className="live-dot" />LIVE {duration(e.elapsed(b!))}</span>}
         {b?.status === 'scheduled' && <span className="dim">starts {duration(Math.max(0, b.scheduledStart - e.now))}</span>}
         {m.winner && m.durationMs && <span className="dim mono">{duration(m.durationMs)}</span>}
@@ -215,8 +215,8 @@ export function TournamentPage() {
           <div className="record-list" style={{ padding: '6px 16px 12px' }}>
             {done.length === 0 && <div className="empty">No results yet.</div>}
             {done.map((m) => {
-              const w = e.tokens[m.winner!];
-              const l = e.tokens[m.winner === m.a ? m.b! : m.a!];
+              const w = e.token(m.winner!);
+              const l = e.token(m.winner === m.a ? m.b! : m.a!);
               const ws = m.winner === m.a ? m.scoreA! : m.scoreB!;
               const ls = m.winner === m.a ? m.scoreB! : m.scoreA!;
               const row = (

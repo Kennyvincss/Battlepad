@@ -1,4 +1,5 @@
 import { HashRouter, Route, Routes } from 'react-router-dom';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { DataProvider } from './data/DataContext';
 import { AppStateProvider } from './components/AppState';
 import { Layout } from './components/Layout';
@@ -18,6 +19,7 @@ import { TreasuryPage } from './pages/TreasuryPage';
 
 export function App() {
   return (
+    <ErrorBoundary page>
     <DataProvider>
       <HashRouter>
         <AppStateProvider>
@@ -45,5 +47,6 @@ export function App() {
         </AppStateProvider>
       </HashRouter>
     </DataProvider>
+    </ErrorBoundary>
   );
 }

@@ -282,8 +282,8 @@ export function ChallengePage() {
   const [busy, setBusy] = useState(false);
   const b = id ? e.getBattle(id) : undefined;
   if (!b) return <div className="page"><div className="panel empty">{e.ready ? 'Challenge not found.' : 'Loading…'}</div></div>;
-  const from = e.tokens[b.a.tokenId];
-  const to = e.tokens[b.b.tokenId];
+  const from = e.token(b.a.tokenId);
+  const to = e.token(b.b.tokenId);
   if (!from || !to) return <div className="page"><div className="panel empty">Loading…</div></div>;
   const rf = e.recordFor(from.id);
   const rt = e.recordFor(to.id);

@@ -32,7 +32,7 @@ export function BattlesPage() {
   const matches = (b: Battle) => {
     if (!q) return true;
     const s = q.toLowerCase();
-    return [b.a.tokenId, b.b.tokenId].some((id) => e.tokens[id].ticker.toLowerCase().includes(s) || e.tokens[id].name.toLowerCase().includes(s));
+    return [b.a.tokenId, b.b.tokenId].some((id) => e.token(id).ticker.toLowerCase().includes(s) || e.token(id).name.toLowerCase().includes(s));
   };
   const sorter = (x: Battle, y: Battle) => {
     if (sort === 'traders') return y.traders - x.traders;
@@ -86,7 +86,7 @@ export function BattlesPage() {
         <div className="tourney-strip">
           {liveTournaments.map((t) => {
             const r = e.currentRound(t);
-            const n = t.rounds[r].filter((m) => m.battleId && e.getBattle(m.battleId)?.status === 'live').length;
+            const n = (t.rounds[r] ?? []).filter((m) => m.battleId && e.getBattle(m.battleId)?.status === 'live').length;
             return (
               <Link key={t.id} to={`/tournament/${t.id}`} className="tourney-chip" style={{ '--h': t.hue } as React.CSSProperties}>
                 <span className="pill pill-live">Live</span>

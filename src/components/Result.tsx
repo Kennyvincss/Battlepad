@@ -12,9 +12,9 @@ import { ShareCard } from './ShareCard';
 export function ResultReveal({ battle, onClose }: { battle: Battle; onClose: () => void }) {
   const e = useData();
   const f = battle.final!;
-  const w = e.tokens[battle.winner!];
+  const w = e.token(battle.winner!);
   const winnerIsA = battle.winner === battle.a.tokenId;
-  const l = e.tokens[winnerIsA ? battle.b.tokenId : battle.a.tokenId];
+  const l = e.token(winnerIsA ? battle.b.tokenId : battle.a.tokenId);
   const ws = winnerIsA ? f.scoreA.total : f.scoreB.total;
   const ls = winnerIsA ? f.scoreB.total : f.scoreA.total;
   const [stage, setStage] = useState(0);
@@ -62,9 +62,9 @@ export function ResultReveal({ battle, onClose }: { battle: Battle; onClose: () 
 export function ResultPanel({ battle, detail }: { battle: Battle; detail?: BattleDetail }) {
   const e = useData();
   const f = battle.final!;
-  const ta = e.tokens[battle.a.tokenId];
-  const tb = e.tokens[battle.b.tokenId];
-  const w = e.tokens[battle.winner!];
+  const ta = e.token(battle.a.tokenId);
+  const tb = e.token(battle.b.tokenId);
+  const w = e.token(battle.winner!);
   const rows: { k: string; a: string; b: string; better?: 'a' | 'b' }[] = [
     { k: 'Final Battle Score', a: f.scoreA.total.toFixed(1), b: f.scoreB.total.toFixed(1), better: f.scoreA.total >= f.scoreB.total ? 'a' : 'b' },
     { k: 'Final market cap', a: usd(f.marketCapA), b: usd(f.marketCapB), better: f.marketCapA >= f.marketCapB ? 'a' : 'b' },

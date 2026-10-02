@@ -110,7 +110,7 @@ export function PortfolioPage() {
               {armies.map(({ b, t }) => {
                 const ended = b!.status === 'ended';
                 const won = ended && b!.winner === t!.id;
-                const opp = e.tokens[b!.a.tokenId === t!.id ? b!.b.tokenId : b!.a.tokenId];
+                const opp = e.token(b!.a.tokenId === t!.id ? b!.b.tokenId : b!.a.tokenId);
                 return (
                   <Link key={b!.id} to={`/battle/${b!.id}`} className="record-row">
                     <span className={`record-res ${won ? 'w' : ended ? 'l' : ''}`}>{ended ? (won ? '🏆' : '❌') : '⚔️'}</span>
@@ -142,7 +142,7 @@ export function PortfolioPage() {
               {challenges.length === 0 && <div className="muted" style={{ fontSize: 13 }}>No open challenges.</div>}
               {challenges.map((c) => {
                 const incoming = mineSet.has(c.b.tokenId);
-                const a = e.tokens[c.a.tokenId], b = e.tokens[c.b.tokenId];
+                const a = e.token(c.a.tokenId), b = e.token(c.b.tokenId);
                 return (
                   <Link key={c.id} to={`/challenge/${c.id}`} className="spread">
                     <span className="row" style={{ gap: 6 }}>{a && <TokenLogo token={a} size={20} />}${a?.ticker}<span className="dim">→</span>{b && <TokenLogo token={b} size={20} />}${b?.ticker}</span>
