@@ -70,9 +70,24 @@ async function syncPairs(db: Db, tokens: { mint: string; pair_address: string }[
   }
 }
 
+/**
+ * GeckoTerminal's free API rate-limits by IP, and Supabase functions share IPs, so
+ * after the first 429 in a run every other GeckoTerminal call that run is skipped.
+ */
+let gtBlocked = false;
+async function gtJson(url: string) {
+  if (gtBlocked) throw new Error('skipped: GeckoTerminal rate limit');
+  try {
+    return await fetchJson(url, { headers: { accept: 'application/json' } });
+  } catch (e) {
+    if (String(e).includes('429')) gtBlocked = true;
+    throw e;
+  }
+}
+
 /** GeckoTerminal: latest trades for a pool, normalised to buy/sell of `mint`. */
 async function poolTrades(pair: string, mint: string) {
-  const j = await fetchJson(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pair}/trades`, { headers: { accept: 'application/json' } });
+  const j = await gtJson(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pair}/trades`);
   return (j.data ?? []).map((d: any) => {
     const a = d.attributes;
     return {
@@ -146,12 +161,12 @@ async function updateLive(db: Db, log: string[]) {
   const mk = await markets(battles.flatMap((b) => [b.ta, b.tb]));
   await syncPairs(db, battles.flatMap((b) => [b.ta, b.tb]), mk);
   const now = Date.now();
-  // GeckoTerminal's free tier allows ~30 calls/min (2 per battle). Poll the battles that
+  // GeckoTerminal's free tier allows ~30 calls/min per IP, shared on Supabase (2 per battle). Poll the battles that
   // waited longest first; long battles (> 1 day) only every 5 minutes.
   const pollIds = new Set(battles
     .filter((b) => now - (b.state?.lastTradesPoll ?? 0) >= (b.rules.randomEnd.minDurationMs > DAY ? 5 * MIN : 0))
     .sort((x, y) => (x.state?.lastTradesPoll ?? 0) - (y.state?.lastTradesPoll ?? 0))
-    .slice(0, 11)
+    .slice(0, 6)
     .map((b) => b.id));
 
   for (const b of battles) {
@@ -180,7 +195,7 @@ async function updateLive(db: Db, log: string[]) {
             }
             prevState[`lastTradeTs_${side}`] = Math.max(lastSeen, ...rows.map((x: any) => x.ts));
           }
-        } catch (e) { log.push(`#${b.number} trades ${tok.symbol}: ${e}`); }
+        } catch (e) { if (!String(e).includes('skipped')) log.push(`#${b.number} trades ${tok.symbol}: ${e}`); }
       }
 
       // Integrity + market-quality inputs from all battle trades.
@@ -336,13 +351,13 @@ async function discoverPumpCoins(db: Db, log: string[]) {
   for (const dex of ['pump-fun', 'pumpswap']) {
     for (const page of [1, 2]) {
       try {
-        const j = await fetchJson(`https://api.geckoterminal.com/api/v2/networks/solana/dexes/${dex}/pools?page=${page}&sort=h24_volume_usd_desc`, { headers: { accept: 'application/json' } });
+        const j = await gtJson(`https://api.geckoterminal.com/api/v2/networks/solana/dexes/${dex}/pools?page=${page}&sort=h24_volume_usd_desc`);
         for (const p of j.data ?? []) {
           const mint = String(p.relationships?.base_token?.data?.id ?? '').replace(/^solana_/, '');
           const reserve = +(p.attributes?.reserve_in_usd ?? 0);
           if (mint && mint !== SOL_MINT && reserve >= min) found.set(mint, Math.max(reserve, found.get(mint) ?? 0));
         }
-      } catch (e) { log.push(`discover ${dex} p${page}: ${e}`); }
+      } catch (e) { if (!String(e).includes('skipped')) log.push(`discover ${dex} p${page}: ${e}`); }
     }
   }
   let added = 0;
@@ -483,6 +498,7 @@ Deno.serve(async (req) => {
     catch (e) { return Response.json({ ok: false, error: String(e) }, { status: 400 }); }
   }
   const log: string[] = [];
+  gtBlocked = false;
   const step = async (name: string, fn: () => Promise<void>) => { try { await fn(); } catch (e) { log.push(`${name}: ${e}`); } };
   await step('tournaments', () => startTournaments(db, log));
   await step('start', () => startBattles(db, log));

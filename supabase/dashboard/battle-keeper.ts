@@ -379,8 +379,18 @@ async function syncPairs(db, tokens, mk) {
     }
   }
 }
+var gtBlocked = false;
+async function gtJson(url) {
+  if (gtBlocked) throw new Error("skipped: GeckoTerminal rate limit");
+  try {
+    return await fetchJson(url, { headers: { accept: "application/json" } });
+  } catch (e) {
+    if (String(e).includes("429")) gtBlocked = true;
+    throw e;
+  }
+}
 async function poolTrades(pair, mint) {
-  const j = await fetchJson(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pair}/trades`, { headers: { accept: "application/json" } });
+  const j = await gtJson(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pair}/trades`);
   return (j.data ?? []).map((d) => {
     const a = d.attributes;
     return {
@@ -456,7 +466,7 @@ async function updateLive(db, log) {
   const mk = await markets(battles.flatMap((b) => [b.ta, b.tb]));
   await syncPairs(db, battles.flatMap((b) => [b.ta, b.tb]), mk);
   const now = Date.now();
-  const pollIds = new Set(battles.filter((b) => now - (b.state?.lastTradesPoll ?? 0) >= (b.rules.randomEnd.minDurationMs > DAY ? 5 * MIN : 0)).sort((x, y) => (x.state?.lastTradesPoll ?? 0) - (y.state?.lastTradesPoll ?? 0)).slice(0, 11).map((b) => b.id));
+  const pollIds = new Set(battles.filter((b) => now - (b.state?.lastTradesPoll ?? 0) >= (b.rules.randomEnd.minDurationMs > DAY ? 5 * MIN : 0)).sort((x, y) => (x.state?.lastTradesPoll ?? 0) - (y.state?.lastTradesPoll ?? 0)).slice(0, 6).map((b) => b.id));
   for (const b of battles) {
     try {
       const A = mk.get(b.token_a), B = mk.get(b.token_b);
@@ -485,7 +495,7 @@ async function updateLive(db, log) {
             prevState[`lastTradeTs_${side}`] = Math.max(lastSeen, ...rows.map((x) => x.ts));
           }
         } catch (e) {
-          log.push(`#${b.number} trades ${tok.symbol}: ${e}`);
+          if (!String(e).includes("skipped")) log.push(`#${b.number} trades ${tok.symbol}: ${e}`);
         }
       }
       const since = b.rules.randomEnd.minDurationMs > DAY ? Math.max(started, now - 7 * DAY) : started;
@@ -652,14 +662,14 @@ async function discoverPumpCoins(db, log) {
   for (const dex of ["pump-fun", "pumpswap"]) {
     for (const page of [1, 2]) {
       try {
-        const j = await fetchJson(`https://api.geckoterminal.com/api/v2/networks/solana/dexes/${dex}/pools?page=${page}&sort=h24_volume_usd_desc`, { headers: { accept: "application/json" } });
+        const j = await gtJson(`https://api.geckoterminal.com/api/v2/networks/solana/dexes/${dex}/pools?page=${page}&sort=h24_volume_usd_desc`);
         for (const p of j.data ?? []) {
           const mint = String(p.relationships?.base_token?.data?.id ?? "").replace(/^solana_/, "");
           const reserve = +(p.attributes?.reserve_in_usd ?? 0);
           if (mint && mint !== SOL_MINT && reserve >= min) found.set(mint, Math.max(reserve, found.get(mint) ?? 0));
         }
       } catch (e) {
-        log.push(`discover ${dex} p${page}: ${e}`);
+        if (!String(e).includes("skipped")) log.push(`discover ${dex} p${page}: ${e}`);
       }
     }
   }
@@ -826,6 +836,7 @@ Deno.serve(async (req) => {
     }
   }
   const log = [];
+  gtBlocked = false;
   const step = async (name, fn) => {
     try {
       await fn();
