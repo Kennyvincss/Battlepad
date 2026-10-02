@@ -5,6 +5,7 @@ import { useData } from '../data/DataContext';
 import { config, treasuryEnabled } from '../live/config';
 import { short, sol, solscanAccount, usd } from '../lib/format';
 import { TokenLogo } from '../components/ui';
+import { useUi } from '../components/AppState';
 import { SwapFeeRow, TREASURY_COLORS } from '../components/Treasury';
 
 function GrowthChart({ swaps, solUsd }: { swaps: SwapRecord[]; solUsd: number | null }) {
@@ -33,6 +34,42 @@ function GrowthChart({ swaps, solUsd }: { swaps: SwapRecord[]; solUsd: number | 
       <text x={padL} y={H - 6} fill="rgba(180,188,203,0.6)" fontSize="11" fontFamily="JetBrains Mono, monospace">{new Date(t0).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</text>
       <text x={W - padR - 30} y={H - 6} fill="rgba(180,188,203,0.6)" fontSize="11" fontFamily="JetBrains Mono, monospace">now</text>
     </svg>
+  );
+}
+
+/** Helps the operator create the wrapped-SOL account that receives the swap fee. */
+function FeeSetup() {
+  const e = useData();
+  const ui = useUi();
+  const [st, setSt] = useState<{ address: string; exists: boolean } | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void e.feeAccountStatus().then(setSt).catch(() => setSt(null)); }, [e, e.wallet.address]);
+  const create = async () => {
+    setBusy(true);
+    try {
+      const address = await e.createFeeAccount();
+      setSt({ address, exists: true });
+      ui.toast({ title: 'Fee account ready', body: 'Copy the address into VITE_FEE_ACCOUNT and FEE_ACCOUNT.', tone: 'good' });
+    } catch (err) {
+      ui.toast({ title: 'Could not create fee account', body: (err as Error).message, tone: 'bad' });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="panel panel-pad col" style={{ gap: 10, marginBottom: 14 }}>
+      <b>Set up the treasury fee (operator)</b>
+      <span className="muted" style={{ fontSize: 12.5 }}>Fees are paid into a wrapped-SOL token account owned by your treasury wallet. Connect that wallet, create the account (about 0.002 SOL rent, one time), then set <code>VITE_PLATFORM_FEE_BPS</code> and <code>VITE_FEE_ACCOUNT</code> in Vercel and <code>FEE_ACCOUNT</code> in Supabase secrets.</span>
+      {!e.wallet.connected && <button className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => ui.openWallet()}>Connect treasury wallet</button>}
+      {st && (
+        <div className="row wrap" style={{ gap: 10 }}>
+          <span className="hash">{st.address}</span>
+          {st.exists
+            ? <><span className="up" style={{ fontSize: 12 }}>✓ exists</span><button className="btn btn-sm" onClick={() => void navigator.clipboard?.writeText(st.address)}>Copy</button></>
+            : <button className="btn btn-sm btn-primary" disabled={busy} onClick={create}>{busy ? 'Creating…' : 'Create fee account'}</button>}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -71,6 +108,7 @@ export function TreasuryPage() {
         {config.feeAccount && <a className="pill" href={solscanAccount(config.feeAccount)} target="_blank" rel="noopener noreferrer">Fee account {short(config.feeAccount)} ↗</a>}
       </div>
       {!treasuryEnabled() && <div className="callout callout-warn" style={{ marginBottom: 14 }}><span>🚧</span><span>The treasury swap fee isn't enabled on this deployment (<code>VITE_PLATFORM_FEE_BPS</code> and <code>VITE_FEE_ACCOUNT</code>), so no fees are being collected yet.</span></div>}
+      {!treasuryEnabled() && <FeeSetup />}
       <div className="callout callout-info" style={{ marginBottom: 14 }}><span>ℹ️</span><span>Allocations are per-battle splits of collected fees (shown here with the default 50/25/25). Payouts are made by the platform until the battle contract automates them.</span></div>
 
       <div className="tre-tiles">

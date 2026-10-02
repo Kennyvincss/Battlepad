@@ -4,10 +4,10 @@ import type {
   IntegrityEvent, Market, Quote, Snapshot, SwapRecord, Token, TokenId, Tournament, Trade, TradeSide, WalletState,
 } from '../data/types';
 import { supabase } from './supabase';
-import { config, isConfigured } from './config';
+import { SOL_MINT, config, isConfigured } from './config';
 import { fetchMarkets, fetchSolPrice } from './market';
 import { buildSwap, getQuote } from './jupiter';
-import { confirm, solBalance, tokenBalances } from './rpc';
+import { accountExists, associatedTokenAddress, confirm, createAtaTx, solBalance, tokenBalances } from './rpc';
 import { Keypair, VersionedTransaction } from '@solana/web3.js';
 import { getWallet, signAndSend, siwsAdapter, type InjectedWallet } from './wallet';
 import { rulesHash } from '../lib/shared';
@@ -517,6 +517,20 @@ export class LiveStore {
     const token = await this.finishLaunch(pending);
     void this.refreshBalances();
     return { token, signature };
+  }
+
+  /** The connected wallet's wrapped-SOL token account, which can receive the treasury swap fee. */
+  async feeAccountStatus() {
+    if (!this.wallet.address) return null;
+    const address = associatedTokenAddress(this.wallet.address, SOL_MINT);
+    return { address, exists: await accountExists(address) };
+  }
+
+  async createFeeAccount() {
+    if (!this.provider || !this.wallet.address) throw new Error('Connect a wallet first.');
+    const r = await this.provider.signAndSendTransaction(await createAtaTx(this.wallet.address, SOL_MINT));
+    await confirm(typeof r === 'string' ? r : r.signature);
+    return associatedTokenAddress(this.wallet.address, SOL_MINT);
   }
 
   async launchFees() {
