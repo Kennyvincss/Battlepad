@@ -99,7 +99,7 @@ export function BattleCard({ battle }: { battle: Battle }) {
       <CardShell
         to={battle.status === 'pending' ? `/challenge/${battle.id}` : `/battle/${battle.id}`}
         status={<span className="row" style={{ gap: 6, minWidth: 0 }}><StatusPill battle={battle} elapsed={0} />{tour}</span>}
-        time={<>Starts in {duration(Math.max(0, battle.scheduledStart - e.now))}</>}
+        time={battle.status === 'scheduled' && battle.scheduledStart <= e.now ? <>Starting…</> : <>Starts in {duration(Math.max(0, battle.scheduledStart - e.now))}</>}
         a={{ token: A.token, mcap: usd(A.mcapUsd), sub: chg(A.change) }}
         b={{ token: B.token, mcap: usd(B.mcapUsd), sub: chg(B.change) }}
         mid={<div className="bcard-pills"><span className="pill">{BATTLE_TYPES[rules.type].label}</span><span className="pill">Runs {Math.round(rules.randomEnd.minDurationMs / 3_600_000)}h+, surprise ending</span></div>}

@@ -312,6 +312,26 @@ export function DurationBlock({ battle, elapsed, detail }: { battle: Battle; ela
   const min = battle.rules.randomEnd.minDurationMs;
   const live = battle.status === 'live';
   const ended = battle.status === 'ended';
+  if (battle.status === 'scheduled' && battle.scheduledStart <= e.now) {
+    // Start time has passed: the keeper starts it on its next run, once both tokens have live prices.
+    const missing = [battle.a.tokenId, battle.b.tokenId].filter((id) => !e.markets[id]).map((id) => e.tokens[id]?.ticker ?? id.slice(0, 4));
+    const late = e.now - battle.scheduledStart > 3 * 60_000;
+    return (
+      <div className="dur">
+        <div className="label">Starting…</div>
+        {missing.length > 0 ? (
+          <div className="dim" style={{ fontSize: 12.5, marginTop: 6 }}>
+            Waiting for live prices for <b>${missing.join(' and $')}</b>. A battle starts once both tokens are listed on DexScreener, which usually takes a few minutes after a token's first trades.
+          </div>
+        ) : (
+          <div className="dim" style={{ fontSize: 12.5, marginTop: 6 }}>
+            {late ? 'This should have started by now. The battle keeper may not be running; check its schedule in Supabase.' : 'The battle starts on the next keeper run (every minute).'}
+          </div>
+        )}
+        <div className="dur-min" style={{ marginTop: 8 }}>Runs at least {duration(min)}</div>
+      </div>
+    );
+  }
   if (!live && !ended) {
     return (
       <div className="dur">
