@@ -389,7 +389,14 @@ export class LiveStore {
   async signIn() {
     if (!supabase) throw new Error('Backend not configured.');
     if (!this.provider) throw new Error('Connect a wallet first.');
-    const { error } = await supabase.auth.signInWithWeb3({ chain: 'solana', statement: 'Sign in to BATTLE. This signature does not move funds.', wallet: siwsAdapter(this.provider) });
+    // The message's URI must be a plain URL: wallets (Phantom) reject Sign-In-With-Solana
+    // messages whose URI carries the hash route (e.g. https://site/#/launch).
+    const { error } = await supabase.auth.signInWithWeb3({
+      chain: 'solana',
+      statement: 'Sign in to BATTLE. This signature does not move funds.',
+      wallet: siwsAdapter(this.provider),
+      options: { url: `${location.origin}/` },
+    });
     if (error) throw error;
     await this.syncSession();
   }
