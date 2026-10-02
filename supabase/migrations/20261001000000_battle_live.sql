@@ -301,12 +301,13 @@ create extension if not exists pg_cron;
 create extension if not exists pg_net;
 select cron.schedule('battle-keeper', '* * * * *', $$
   select net.http_post(
-    url     := (select decrypted_secret from vault.decrypted_secrets where name = 'project_url') || '/functions/v1/battle-keeper',
+    -- btrim: pasted secrets often carry a trailing space/newline, which libcurl rejects ("bad argument").
+    url     := btrim((select decrypted_secret from vault.decrypted_secrets where name = 'project_url'), E' \t\r\n/') || '/functions/v1/battle-keeper',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
-      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'keeper_secret')
+      'Authorization', 'Bearer ' || btrim((select decrypted_secret from vault.decrypted_secrets where name = 'keeper_secret'), E' \t\r\n')
     ),
     body    := '{}'::jsonb,
-    timeout_milliseconds := 55000
+    timeout_milliseconds := 30000
   )
 $$);
